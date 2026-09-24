@@ -1,6 +1,7 @@
 import copy
 import importlib.util
 import json
+import math
 import os
 import time
 
@@ -44,6 +45,8 @@ def test_zelfde_uitvoer_als_versie_1():
     spec.loader.exec_module(oud)
     a, b = oud.Engine(), Engine(PI_SHOW)
     a.bpm_t0 = b.bpm_t0 = 5000.0
+    for eng in (a, b):      # de laser heeft in versie 3 meer looks gekregen; die wisselen dus anders
+        eng.data["show"]["looks"]["modus"] = "uit"
     for kleur in ("random", "chase", "fade", "regenboog", "wissel"):
         for inten in ("aan", "chase", "golf", "pingpong", "puls"):
             for eng in (a, b):
@@ -59,8 +62,8 @@ def test_zelfde_uitvoer_als_versie_1():
 
 def test_migratie_v1():
     e = Engine(PI_SHOW)
-    assert e.data["versie"] == 2
-    assert e.data["uitgangen"][0]["soort"] == "opendmx"
+    assert e.data["versie"] == 3
+    assert e.data["uitgangen"][0]["soort"] in ("opendmx", "usb")
     assert all(f["universe"] == 1 for f in e.data["fixtures"])
     assert "laser_20" in e.data["profielen"]
 
@@ -187,3 +190,54 @@ def test_tempo_factor_zonder_sprong(e):
     assert abs(voor - na) < 1e-6
     later = e.effect_beat(e.beat(1002.0))
     assert abs((later - na) - 2 * e.data["show"]["bpm"] / 60) < 1e-6
+
+
+def test_laser_uit_oude_show_bijgewerkt():
+    """De laser uit de show van versie 1 krijgt de echte functies en alle keuzes uit de handleiding."""
+    e = Engine(PI_SHOW)
+    laser = e.data["profielen"]["laser_20"]
+    functies = [k["functie"] for k in laser["kanalen"]]
+    assert functies[:6] == ["schakelaar", "red", "green", "blue", "strobe", "kleurmacro"]
+    assert functies[7:14] == ["patroon", "patroongroep", "grootte", "zoom_auto", "rotatie", "kantel_x", "kantel_y"]
+    assert functies[16:] == ["golf", "tekenen", "programma", "programma_snelheid"]
+    assert "fixed" not in functies
+    assert len(laser["kanalen"][5]["opties"]) == 12            # kanaal 6: kleur, 12 keuzes in de handleiding
+    assert any(o["naam"] == "Animaties" for o in laser["kanalen"][18]["opties"])
+    assert {"Lijn-effect", "Kantelen", "Tekenen"} <= {lk["naam"] for lk in laser["looks"]}
+    assert e.data["versie"] == 3
+
+
+def test_patroon_wisselt_op_de_beat():
+    e = Engine(PI_SHOW)
+    e.bpm_t0 = 1000.0
+    e.data["show"]["looks"]["modus"] = "uit"
+    e.wijzig_show({"attributen": {"patroongroep": {"modus": "wissel", "elke": 4}}})
+    laser = next(f for f in e.data["fixtures"] if f["naam"] == "Laser")
+    beat = 60.0 / e.data["show"]["bpm"]
+    waarden = [e.render(1000.0 + (4 * n + 0.5) * beat)[1][laser["adres"] - 1 + 8] for n in range(8)]
+    assert waarden[:5] == [12, 37, 62, 87, 137]   # groep 1 t/m 4, dan animaties 1: 'gereserveerd' wordt overgeslagen
+    assert len(set(waarden)) == 7 and waarden[7] == waarden[0]
+    e.wijzig_show({"attributen": {"patroongroep": {"elke": 8}}})
+    assert e.data["show"]["attributen"]["patroongroep"] == {"modus": "wissel", "elke": 8}
+
+
+def test_zoeken_laat_lamp_knipperen(e):
+    e.identificeer(1)
+    t = math.ceil(time.time() * 2) / 2 + 0.01      # knippert 2x per seconde: t = aan, t + 0,25 = uit
+    aan, uit = kanalen(e, "Par 1", t), kanalen(e, "Par 1", t + 0.25)
+    assert aan[0] == 255 and uit[0] == 0
+
+
+def test_laser_uit_wizard_van_versie_2_bijgewerkt():
+    """Een laser die in versie 2 via de wizard is toegevoegd (ander id, oude naam) wordt ook bijgewerkt."""
+    oud = {"naam": "Laser 20 kanalen", "soort": "laser", "looks": [],
+           "kanalen": [{"naam": f"Kanaal {i + 1}", "functie": fn, "standaard": 0}
+                       for i, fn in enumerate(["schakelaar"] + ["fixed"] * 3 + ["strobe"] + ["fixed"] * 9
+                                              + ["pan", "tilt"] + ["fixed"] * 4)]}
+    e = Engine(None)
+    data = e.normaliseer({"versie": 2, "profielen": {"laser_20_kanalen": oud}, "fixtures": [
+        {"id": 1, "naam": "Laser", "profiel": "laser_20_kanalen", "adres": 80}]})
+    p = data["profielen"]["laser_20_kanalen"]
+    assert p["kanalen"][8]["functie"] == "patroongroep" and len(p["kanalen"][8]["opties"]) == 10
+    assert p["kanalen"][0]["naam"] == "Kanaal 1"          # eigen namen blijven
+    assert len(p["looks"]) >= 18

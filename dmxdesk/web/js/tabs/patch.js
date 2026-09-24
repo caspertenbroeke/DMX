@@ -34,7 +34,8 @@ function teken() {
         <td style="min-width:110px"><input data-i="${i}" data-k="groep" value="${esc(f.groep)}" list="groepLijst"></td>
         <td style="white-space:nowrap">${['kleur', 'intensiteit', 'beweging'].map(s => `<input type="checkbox" title="${s}" data-i="${i}" data-k="effecten.${s}" ${f.effecten[s] ? 'checked' : ''}>`).join(' ')}</td>
         <td><input type="checkbox" data-i="${i}" data-k="strobe" ${f.strobe ? 'checked' : ''}></td>
-        <td style="white-space:nowrap"><button class="stil icoon" data-meer="${f.id}" title="Meer">${open.has(f.id) ? '▴' : '▾'}</button>
+        <td style="white-space:nowrap"><button class="stil" data-zoek="${f.id}" title="Laat deze lamp 4 seconden knipperen: zo zie je of adres, kabel en DMX-modus kloppen">Zoek</button>
+          <button class="stil icoon" data-meer="${f.id}" title="Meer">${open.has(f.id) ? '▴' : '▾'}</button>
           <button class="stil icoon" data-kopie="${i}" title="Dupliceren">⧉</button><button class="stil icoon" data-weg="${i}" title="Verwijderen">×</button></td>
       </tr>${open.has(f.id) ? `<tr><td colspan="8"><div class="velden" style="padding:6px 0 10px">
         ${bew ? `<label>Pan min / max<span class="rij" style="margin:0"><input type="number" min="0" max="255" data-i="${i}" data-k="pan_min" value="${f.pan_min}">
@@ -51,6 +52,12 @@ function teken() {
   <datalist id="groepLijst">${[...new Set(F.map(f => f.groep))].map(g => `<option value="${esc(g)}">`).join('')}</datalist>
   <p class="hint">${F.length} lampen · ${universes.map(u => `universe ${u}: ${F.filter(f => Number(f.universe) === u).reduce((s, f) => s + (S.profielen[f.profiel]?.kanalen.length || 0), 0)} kanalen`).join(' · ')}</p>`
     : '<div class="leeg">Nog geen lampen. Voeg ze toe uit de bibliotheek met <b>+ Lamp toevoegen</b>.</div>';
+  $('#ptTips').innerHTML = `<h2>Doet een lamp niets?</h2><ol class="hint" style="line-height:1.7">
+    <li><b>Adres:</b> het adres op de lamp (display of DIP-schakelaars) moet hetzelfde zijn als hier. Met <b>Zoek</b> knippert de lamp op dit adres.</li>
+    <li><b>DMX-modus:</b> zet de lamp in DMX-modus met precies zoveel kanalen als het profiel (niet in auto- of geluidsmodus).</li>
+    <li><b>Kabel:</b> bovenin moet <b>DMX ok</b> groen staan. Zo niet: tabblad Uitgangen. Kies daar "USB-DMX-kabel (herkent zelf het type)".</li>
+    <li><b>Laatste lamp in de rij:</b> bij lange kabels helpt een DMX-eindweerstand (terminator) in de laatste lamp.</li>
+    <li><b>Kijk in de Monitor</b> welke waarden er echt naar buiten gaan, en in de <b>Programmer</b> kun je elk kanaal met de hand zetten.</li></ol>`;
   const knop = $('#ptOpslaan'); if (knop) knop.disabled = !vuil();
 }
 
@@ -115,6 +122,8 @@ function wizard() {
         <label>Groep<input id="wzGroep" value="${esc($('#wzGroep', d.el)?.value || GROEP[prof.soort] || 'Overig')}" list="groepLijst"></label>
         <label>Naam<input id="wzNaam" value="${esc(basis)}"></label>
       </div>
+      <p class="hint"><b>Belangrijk:</b> zet de lamp in de DMX-modus met <b>${n} kanalen</b>. Staat er al een adres op de lamp
+        (display of DIP-schakelaars)? Vul dát hier in als startadres. Anders: zet het adres hieronder op de lamp.</p>
       <p class="hint ${adres ? '' : 'fout'}">${adres ? `${n} kanalen per lamp. ${aantal > 1 ? `De lampen krijgen opeenvolgende adressen (${adres}, ${adres + n}, …, ${adres + (aantal - 1) * n}).` : ''}`
         : `In universe ${universe} is geen plek meer voor ${aantal} × ${n} kanalen. Kies een andere universe.`}</p>
       <details><summary class="hint">Kanalen bekijken</summary><ol class="hint">${prof.kanalen.map(k => `<li>${esc(k.naam)} – ${esc(S.functies[k.functie] || k.functie)}${k.kop ? ' (cel ' + k.kop + ')' : ''}</li>`).join('')}</ol></details></div>`;
@@ -176,13 +185,19 @@ export default {
     el.innerHTML = `<div class="paginakop"><h1>Patch</h1><span class="hint">Welke lampen er zijn en op welk DMX-adres ze staan.</span><span class="vul"></span>
         <button id="ptNieuw" class="primair">+ Lamp toevoegen</button><button id="ptHerstel">Wijzigingen ongedaan maken</button>
         <button id="ptOpslaan" class="primair" disabled>Opslaan</button></div>
-      <div class="blok" id="ptTabel"></div>`;
+      <div class="blok" id="ptTabel"></div><div class="blok" id="ptTips" style="margin-top:14px"></div>`;
     teken();
     el.onclick = async e => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.id === 'ptNieuw') wizard();
       else if (b.id === 'ptOpslaan') opslaan();
       else if (b.id === 'ptHerstel') { F = null; teken(); }
+      else if (b.dataset.zoek) {
+        if (vuil()) return toast('Sla eerst op: Zoek gebruikt het opgeslagen adres', true);
+        const f = K.S.fixtures.find(x => x.id === Number(b.dataset.zoek));
+        if (await doe('/api/zoek', { fixture: Number(b.dataset.zoek) }))
+          toast(`${f.naam} knippert nu (universe ${f.universe}, adres ${f.adres}). Knippert er niets? Zie de tips onderaan.`);
+      }
       else if (b.dataset.meer) { const id = Number(b.dataset.meer); open.has(id) ? open.delete(id) : open.add(id); teken(); }
       else if (b.dataset.kopie !== undefined) {
         const f = kloon(F[Number(b.dataset.kopie)]);

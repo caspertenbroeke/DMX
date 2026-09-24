@@ -37,7 +37,7 @@ def test_qxf():
     naam, p = modi[0]
     assert p["fabrikant"] == "Testmerk" and p["soort"] == "moving"
     fn = [k["functie"] for k in p["kanalen"]]
-    assert fn == ["pan", "tilt", "strobe", "dimmer", "red", "green", "fixed"]
+    assert fn == ["pan", "tilt", "strobe", "dimmer", "red", "green", "patroon"]
     shutter = p["kanalen"][2]
     assert shutter["standaard"] == 8 and 16 < shutter["strobe"] <= 255
     assert p["kanalen"][6]["opties"][1]["naam"] == "Gobo 1"
@@ -79,3 +79,11 @@ def test_alle_ofl_lampen_omzetbaar():
     for item in b.ofl()["index"]:
         for m in b.profielen(item["sleutel"]):
             assert all(0 <= k["standaard"] <= 255 for k in m["profiel"]["kanalen"])
+
+
+def test_ofl_echte_functies_in_plaats_van_vaste_waarde():
+    b = Bibliotheek()
+    r = b.zoek("inno pocket spot")
+    modi = b.profielen(next(i["sleutel"] for i in r["resultaten"] if i["naam"] == "Inno Pocket Spot"))
+    fn = {k["naam"]: k["functie"] for k in modi[0]["profiel"]["kanalen"]}
+    assert fn["Color Wheel"] == "kleurmacro" and fn["Gobo Wheel"] == "patroon" and fn["Pan/Tilt Speed"] == "snelheid"

@@ -12,7 +12,8 @@ Begonnen als lichtsturing van de carnavalswagen van CV de Zeutekauwn; nu voor ie
 |---|---|
 | **Live** | Podium met live licht, scènes (sneltoetsen 1–0), cuelijsten, faders, STROBE / SMOKE / BLINDER vasthouden, tempo ½× – 4×, freeze, blackout |
 | **Effecten** | 10 kleur-, 21 intensiteits- en 13 bewegingseffecten, allemaal op de beat. Palet, snelheid, spreiding, auto-show, "show volgt de energie van de muziek", flits bij een drop |
-| **Programmer** | Lampen aanklikken en met de hand instellen: dimmer, kleur, pan/tilt (XY-veld), losse kanalen met keuzelijsten (gobo, kleurwiel). Opslaan als scène |
+| **Programmer** | Lampen aanklikken en met de hand instellen: dimmer, kleur, pan/tilt (XY-veld), en elk kanaal met knoppen voor alle functies uit de handleiding (gobo, kleurwiel, laserpatroon, …). Opslaan als scène of als look |
+| **Laser & patronen** | Patroon, patroongroep, kleurprogramma, zoom, draaien, kantelen, golf, tekenen, ingebouwde effecten, prisma, focus, … laten wisselen op de beat, willekeurig, of meegaan met de energie van de muziek |
 | **Scènes** | Vaste looks en/of effecten, met overvloeien (fade). Cuelijsten die in beats of seconden door scènes lopen |
 | **Podium** | Plattegrond: sleep lampen naar hun plek. Links→rechts bepaalt hoe chases en golven lopen |
 | **Patch** | Lampen toevoegen uit de bibliotheek, universes en adressen, overlap-controle, DIP-schakelaar-hulp |
@@ -63,6 +64,22 @@ dmxdesk --show pad.json  ander showbestand
 3. **Podium:** sleep de lampen naar hun plek.
 4. **Geluid:** kies je microfoon of line-in en zet *Luisteren* aan. Of tik het tempo met de spatiebalk.
 5. **Effecten / Programmer:** maak een mooie look en sla hem op als **scène**. Scènes staan op *Live*.
+
+### Doet een lamp niets?
+
+1. **Adres:** het adres op de lamp (display of DIP-schakelaars) moet hetzelfde zijn als in Patch. Met de knop
+   **Zoek** in Patch knippert de lamp op dat adres.
+2. **DMX-modus:** zet de lamp in de DMX-modus met precies zoveel kanalen als het profiel (niet in auto- of geluidsmodus).
+3. **Kabel:** bovenin moet **DMX ok** groen staan. Kies bij Uitgangen "USB-DMX-kabel (herkent zelf het type)":
+   DMXDesk vraagt de kabel dan zelf of hij een Enttec Pro(-kloon) of een simpele Open DMX-kabel is.
+4. In de **Monitor** zie je welke waarden er echt naar buiten gaan; in de **Programmer** zet je elk kanaal met de hand.
+
+### Een lamp uit de handleiding toevoegen
+
+Staat je lamp niet in de bibliotheek, maak dan in **Profielen** een profiel: per kanaal de **functie** (dimmer, rood,
+patroon, draaien, ingebouwd programma, …) en onder **Opties** de bereiken uit de handleiding, één per regel, bijvoorbeeld
+`125-149 Animaties 1`. Die keuzes verschijnen dan als knoppen in de Programmer, en de show kan ermee wisselen op de beat.
+Een QLC+-bestand (.qxf) of Open Fixture Library-bestand (.json) van je lamp kun je ook direct importeren.
 
 ### Telefoon of tablet
 

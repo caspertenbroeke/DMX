@@ -60,6 +60,14 @@ function delen() {
       <button class="swatch" style="background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red)" data-regenboog title="Regenboog"></button></div>
     <h3>Intensiteit</h3>
     <div class="knoppen drie">${SNEL_INT.map(([m, t]) => `<button data-int="${m}" class="${s.intensiteit.modus === m ? 'aan' : ''}">${t}</button>`).join('')}</div>`;
+  const lookProfielen = Object.entries(S.profielen).filter(([pid, p]) => p.looks && p.looks.length && S.fixtures.some(f => f.profiel === pid));
+  $('#lvLooks').parentElement.hidden = !lookProfielen.length;
+  $('#lvLooks').innerHTML = `<div class="knoppen drie" style="margin-bottom:8px">
+      <button data-lookmodus="uit" class="${s.looks.modus === 'uit' ? 'aan' : ''}">Uit</button>
+      <button data-lookmodus="wissel" class="${s.looks.modus === 'wissel' ? 'aan' : ''}">Wissel op de beat</button>
+      <button data-lookmodus="vast" class="${s.looks.modus === 'vast' ? 'aan' : ''}">Vaste look</button></div>`
+    + lookProfielen.map(([pid, p]) => `${lookProfielen.length > 1 ? `<h3>${esc(p.naam)}</h3>` : ''}<div class="knoppen">
+      ${p.looks.map((l, i) => `<button data-look="${esc(pid)}" data-idx="${i}" class="${s.looks.modus === 'vast' && (s.looks.keuze[pid] || 0) === i ? 'aan' : ''}">${esc(l.naam)}</button>`).join('')}</div>`).join('');
   $('#lvFaders').innerHTML = fader('master', '', 'MASTER', s.master, 'master')
     + Object.entries(s.groepen).filter(([g]) => metLicht(g)).map(([g, v]) => fader('groep', g, g, v)).join('')
     + S.faders.map(f => fader('fader', f.id, f.naam, f.waarde)).join('');
@@ -93,6 +101,7 @@ export default {
           <div class="houders"><button class="houd strobe">STROBE</button><button class="houd smoke">SMOKE</button><button class="houd blinder">BLINDER</button></div>
           <p class="hint">Werkt zolang je vasthoudt. Toetsen: <code>S</code> strobe, <code>R</code> rook, <code>W</code> blinder.</p></div>
         <div class="blok"><h2>Snel</h2><div id="lvSnel"></div></div>
+        <div class="blok"><h2>Laser &amp; looks</h2><div id="lvLooks"></div></div>
         <div class="blok"><h2>Faders</h2><div class="faders" id="lvFaders"></div></div>
       </div></div>`;
     podium = new Podium($('#lvPodium'), { modus: 'kijk', hoogte: 'min(40vh, 420px)' });
@@ -113,6 +122,8 @@ export default {
       if (b.dataset.int) return doe('/api/show', { intensiteit: { modus: b.dataset.int } });
       if (b.dataset.snelkleur) return doe('/api/show', { kleur: { modus: 'vast', palet: [b.dataset.snelkleur] }, auto: { aan: false } });
       if (b.dataset.regenboog !== undefined) return doe('/api/show', { kleur: { modus: 'regenboog' } });
+      if (b.dataset.lookmodus) return doe('/api/show', { looks: { modus: b.dataset.lookmodus } });
+      if (b.dataset.look !== undefined) return doe('/api/show', { looks: { modus: 'vast', keuze: { [b.dataset.look]: Number(b.dataset.idx) } } });
     };
     el.oninput = e => {
       const i = e.target; if (!i.dataset.fader) return;

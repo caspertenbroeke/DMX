@@ -5,6 +5,7 @@ Alle functies zijn 'puur': dezelfde invoer geeft dezelfde uitvoer. i/n = plek va
 """
 import math
 import random
+import re
 
 
 def clamp(v, laag, hoog):
@@ -218,3 +219,50 @@ def beweging_effect(cfg, fase, i, n):
         w = 0.5 - 0.5 * math.cos(math.pi * (r - k))
         dp, dt = g * (a[0] + (b[0] - a[0]) * w), g * (a[1] + (b[1] - a[1]) * w)
     return clamp(cp + dp, 0.0, 1.0), clamp(ct + dt, 0.0, 1.0)
+
+
+# ---------------------------------------------------------------- patronen, kleurprogramma's, rotatie, … (lasers, spots)
+
+ATTRIBUUT_MODI = [("uit", "Uit (vaste stand)"), ("wissel", "Wissel op de beat"), ("random", "Willekeurig op de beat"),
+                  ("energie", "Volgt de energie")]
+_NIET_BRUIKBAAR = re.compile(r"^(geen|uit\b|no function|nothing|reserved|gereserveerd|onderhoud|reset)|gereserveerd|reserved",
+                             re.IGNORECASE)
+
+
+def bruikbare_opties(kanaal):
+    """Keuzes van een kanaal waar de show mee kan wisselen (dus niet 'geen functie' of 'gereserveerd')."""
+    return [o for o in (kanaal.get("opties") or []) if not _NIET_BRUIKBAAR.search(str(o.get("naam", "")).strip())]
+
+
+def attribuut_keuzes(kanaal, namen=None):
+    """Waarden waartussen gewisseld wordt. Eén doorlopend bereik (bijv. 'patroon 0-255') wordt 8 stappen."""
+    opties = bruikbare_opties(kanaal)
+    if namen:
+        gekozen = [o for o in opties if o.get("naam") in namen]
+        opties = gekozen or opties
+    if len(opties) >= 2:
+        return [int(round((o["van"] + o["tot"]) / 2.0)) for o in opties]
+    van, tot = (opties[0]["van"], opties[0]["tot"]) if opties else (0, 255)
+    return [int(round(van + (tot - van) * (k + 0.5) / 8.0)) for k in range(8)]
+
+
+def attribuut_effect(cfg, kanaal, beat, nr, energie=None):
+    """Waarde voor een kanaal als patroon, kleurprogramma of rotatie, of None als het effect uit staat."""
+    m = cfg.get("modus", "uit")
+    if m == "uit":
+        return None
+    keuzes = attribuut_keuzes(kanaal, cfg.get("keuzes"))
+    elke = max(0.25, float(cfg.get("elke", 4) or 4))
+    stap = int(math.floor(beat / elke))
+    if m == "wissel":
+        return keuzes[stap % len(keuzes)]
+    if m == "random":
+        return random.Random(stap * 7919 + nr * 104729).choice(keuzes)
+    if m == "energie":
+        e = 0.5 if energie is None else clamp(float(energie), 0.0, 1.0)
+        opties = bruikbare_opties(kanaal)
+        if len(keuzes) > 1 and len(opties) > 1:
+            return keuzes[min(len(keuzes) - 1, int(e * len(keuzes)))]
+        van, tot = (opties[0]["van"], opties[0]["tot"]) if opties else (0, 255)
+        return int(round(van + (tot - van) * e))
+    return None

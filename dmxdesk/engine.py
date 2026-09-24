@@ -18,9 +18,10 @@ import threading
 import time
 from collections import deque
 
-from .effecten import (BEWEGING_MODI, INTENSITEIT_MODI, KLEUR_MODI, beweging_effect, clamp, hex_rgb,
-                       intensiteit_effect, kleur_effect, rgb_hex)
-from .profielen import FUNCTIES, KLEURFUNCTIES, STANDAARD_PROFIELEN, byte, koppen, schoon_profiel
+from .effecten import (ATTRIBUUT_MODI, BEWEGING_MODI, INTENSITEIT_MODI, KLEUR_MODI, attribuut_effect,
+                       beweging_effect, bruikbare_opties, clamp, hex_rgb, intensiteit_effect, kleur_effect, rgb_hex)
+from .profielen import (ATTRIBUUT_FUNCTIES, FUNCTIES, KLEURFUNCTIES, STANDAARD_PROFIELEN, byte, koppen,
+                        schoon_profiel)
 
 FPS = 40
 HOLD_TIMEOUT = 0.7   # seconden: knop geldt als losgelaten als de telefoon niets meer stuurt
@@ -28,7 +29,8 @@ TEST_TIMEOUT = 6.0   # seconden: testmodus stopt vanzelf als de testpagina dicht
 MAX_UNIVERSES = 64
 HOLD_SOORTEN = ("smoke", "strobe", "blinder")
 UITGANG_SOORTEN = {
-    "opendmx": "USB-DMX (FTDI / Open DMX)",
+    "usb": "USB-DMX-kabel (herkent zelf het type)",
+    "opendmx": "USB-DMX: Open DMX / FTDI",
     "enttecpro": "Enttec DMX USB Pro (of compatibel)",
     "artnet": "Art-Net (netwerk)",
     "sacn": "sACN / E1.31 (netwerk)",
@@ -86,14 +88,21 @@ STANDAARD_SHOW = {
              "bpm_min": 75, "bpm_max": 220, "snel_herkennen": True},
     "energie": {"aan": False, "flits_bij_drop": True},
     "groepen": {},
+    "attributen": {},      # functie (patroon, rotatie, …) -> {"modus", "elke", "keuzes"}
 }
-EFFECT_SLEUTELS = ("kleur", "intensiteit", "beweging", "looks")
+EFFECT_SLEUTELS = ("kleur", "intensiteit", "beweging", "looks", "attributen")
+OUDE_PROFIELNAMEN = {"Laser 20 kanalen": "laser_20"}   # naam in shows van vóór versie 3
 
 
 def samenvoegen(doel, bron):
     """Voegt bron recursief in doel, alleen voor sleutels die in doel bestaan (plus vrije dicts)."""
     for k, v in bron.items():
-        if k in ("keuze", "groepen") and isinstance(v, dict):
+        if k == "attributen" and isinstance(v, dict):
+            a = doel.setdefault(k, {})
+            for fn, cfg in v.items():
+                if fn in ATTRIBUUT_FUNCTIES and isinstance(cfg, dict):
+                    a.setdefault(fn, {}).update({x: y for x, y in cfg.items() if x in ("modus", "elke", "keuzes")})
+        elif k in ("keuze", "groepen") and isinstance(v, dict):
             doel.setdefault(k, {}).update(v)
         elif isinstance(doel.get(k), dict) and isinstance(v, dict):
             samenvoegen(doel[k], v)
@@ -162,6 +171,7 @@ class Engine:
         self.hold = {s: 0.0 for s in HOLD_SOORTEN}
         self.hold_vast = set()           # vastgehouden via MIDI of toetsenbord (zonder herhalen)
         self.test = None
+        self.zoek = None
         self.status = {"fps": 0}
         self.uitgang_status = {}         # id -> {"ok", "tekst"}, ingevuld door uitvoer.py
         self.frames = {1: bytearray(512)}
@@ -176,6 +186,7 @@ class Engine:
         self.noten = deque(maxlen=64)    # (tijd waarop hoorbaar, toon 0-11) van de melodie
         self.melodie_nu, self.sinds_noot = [], None
         self.energie, self.energie_gezien = 0.5, 0.0
+        self.energie_attr = None
         self.e_stap = 1.0                # snelheidsfactor door energie (0,5 / 1 / 2)
         self.drop_van, self.drop_tot = 0.0, 0.0
         self.vorige_beat, self.bew_fase = None, 0.0
@@ -191,7 +202,7 @@ class Engine:
     # ------------------------------------------------------------ opslag
     def standaard(self):
         return {
-            "versie": 2,
+            "versie": 3,
             "naam": "Mijn show",
             "show": copy.deepcopy(STANDAARD_SHOW),
             "fixtures": copy.deepcopy(STANDAARD_FIXTURES),
@@ -199,7 +210,7 @@ class Engine:
             "scenes": {},
             "cuelijsten": {},
             "faders": [{"id": 1, "naam": "Rook (continu)", "functie": "smoke", "fixtures": [], "waarde": 0}],
-            "uitgangen": [{"id": 1, "naam": "USB-DMX", "soort": "opendmx", "universe": 1, "poort": "auto", "aan": True}],
+            "uitgangen": [{"id": 1, "naam": "USB-DMX", "soort": "usb", "universe": 1, "poort": "auto", "aan": True}],
             "audio": {"aan": False, "apparaat": None},
             "midi": {"apparaat": "", "koppelingen": {}},
             "instellingen": {"pin_hash": "", "pin_zout": secrets.token_hex(8)},
@@ -221,19 +232,42 @@ class Engine:
         data["cuelijsten"] = self.schone_cuelijsten(data["cuelijsten"])
         data["faders"] = self.schone_faders(data["faders"])
         data["uitgangen"] = self.schone_uitgangen(data["uitgangen"])
+        if int(geladen.get("versie", 1)) < 3:
+            self.profielen_bijwerken(data["profielen"])
         data["instellingen"].setdefault("pin_hash", "")
         data["instellingen"].setdefault("pin_zout", secrets.token_hex(8))
         data["midi"].setdefault("koppelingen", {})
-        data["versie"] = 2
+        data["versie"] = 3
         self.groepen_bijwerken(data)
         return data
+
+    @staticmethod
+    def profielen_bijwerken(profielen):
+        """Eenmalig (show van vóór versie 3): ingebouwde profielen krijgen hun echte kanaalfuncties, de keuzes uit de
+        handleiding en nieuwe looks. Alleen als de kanalen nog overeenkomen; eigen aanpassingen blijven staan."""
+        op_naam = {p["naam"]: pid for pid, p in STANDAARD_PROFIELEN.items()}
+        op_naam.update(OUDE_PROFIELNAMEN)
+        for pid, p in profielen.items():
+            std = STANDAARD_PROFIELEN.get(pid) or STANDAARD_PROFIELEN.get(op_naam.get(p.get("naam"), ""))
+            if not std or len(std["kanalen"]) != len(p["kanalen"]):
+                continue
+            paren = list(zip(p["kanalen"], std["kanalen"]))
+            if any(k["functie"] not in (sk["functie"], "fixed") for k, sk in paren):
+                continue       # zelf andere functies gekozen: niet aankomen
+            for k, sk in paren:
+                if k["functie"] == "fixed" and sk["functie"] != "fixed":
+                    k["functie"] = sk["functie"]
+                if not k.get("opties") and sk.get("opties"):
+                    k["opties"] = copy.deepcopy(sk["opties"])
+            namen = {lk["naam"] for lk in p.get("looks", [])}
+            p["looks"] = p.get("looks", []) + [copy.deepcopy(lk) for lk in std.get("looks", []) if lk["naam"] not in namen]
 
     @staticmethod
     def migreer_v1(oud):
         """show.json van DMXDesk 1 (alleen de Pi, één USB-dongle) omzetten."""
         nieuw = dict(oud)
         poort = oud.get("dmx_poort", "auto") or "auto"
-        nieuw["uitgangen"] = [{"id": 1, "naam": "USB-DMX", "soort": "opendmx", "universe": 1, "poort": poort, "aan": True}]
+        nieuw["uitgangen"] = [{"id": 1, "naam": "USB-DMX", "soort": "usb", "universe": 1, "poort": poort, "aan": True}]
         nieuw["scenes"] = {naam: {"effecten": {k: v for k, v in sc.items() if k in EFFECT_SLEUTELS}, "vast": {},
                                   "fade": 0, "kleur": ""}
                            for naam, sc in (oud.get("scenes") or {}).items()}
@@ -827,6 +861,7 @@ class Engine:
             else:
                 self.melodie_nu, self.sinds_noot = [], None
             self.energie_toepassen(show, eb, nu)
+            self.energie_attr = self.energie if nu - self.energie_gezien < 5.0 else None
             c = self.cache()
             menging = self.scene_menging(nu)
             master = 0.0 if show.get("blackout") else clamp(float(show.get("master", 100)), 0, 100) / 100.0
@@ -946,7 +981,15 @@ class Engine:
                 v = v if M * max(stand.E.values()) > 0.02 else 0
             uit.append(byte(v))
 
-        # 5. looks (bijv. laser-effecten)
+        # 5. patronen, kleurprogramma's, rotatie, … op de beat; daarna looks (vaste combinaties, bijv. laser-effecten)
+        attributen = show.get("attributen") or {}
+        if attributen:
+            for n_k, fn in enumerate(functies):
+                cfg = attributen.get(fn)
+                if cfg and cfg.get("modus", "uit") != "uit":
+                    v = attribuut_effect(cfg, kanalen[n_k], beat, fid, self.energie_attr)
+                    if v is not None:
+                        uit[n_k] = byte(v)
         looks = inf["prof"].get("looks") or []
         cfg = show["looks"]
         if looks and cfg.get("modus") != "uit":
@@ -1008,6 +1051,19 @@ class Engine:
                 elif functies[kn] == "smoke":
                     uit[kn] = 255
 
+        # zoeken: lamp knippert (dimmer, kleuren en hoofdschakelaar aan/uit)
+        zoek = self.zoek
+        if zoek and zoek["fixture"] == fid and nu < zoek["tot"]:
+            aan = int(nu * 4) % 2 == 0
+            for kn, k in enumerate(kanalen):
+                fn = functies[kn]
+                if fn in ("dimmer", "red", "green", "blue", "white"):
+                    uit[kn] = 255 if aan else 0
+                elif fn == "schakelaar":
+                    uit[kn] = byte(k.get("standaard") or 255) if aan else 0
+                elif fn == "strobe":
+                    uit[kn] = byte(k.get("standaard") or 0)
+
         # testpagina: ruwe waarden voor deze fixture
         if test and test.get("fixture") == fid:
             for kn, waarde in enumerate(test.get("waarden", [])[:len(uit)]):
@@ -1047,6 +1103,31 @@ class Engine:
         if inf["rook"]:
             uitv["r"] = round(max(uit[i] for i, fn in enumerate(functies) if fn == "smoke") / 255.0, 2)
         return uitv
+
+    def attribuut_overzicht(self):
+        """Welke patroon-/programmafuncties de gepatchte lampen hebben, met hun keuzes (voor het tabblad Effecten)."""
+        uit = {}
+        with self.lock:
+            for f in self.data["fixtures"]:
+                prof = self.data["profielen"].get(f["profiel"])
+                if not prof:
+                    continue
+                for k in prof["kanalen"]:
+                    fn = k.get("functie")
+                    if fn not in ATTRIBUUT_FUNCTIES:
+                        continue
+                    item = uit.setdefault(fn, {"opties": [], "lampen": []})
+                    if f["naam"] not in item["lampen"]:
+                        item["lampen"].append(f["naam"])
+                    for o in bruikbare_opties(k):
+                        if o["naam"] not in item["opties"]:
+                            item["opties"].append(o["naam"])
+        return {fn: uit[fn] for fn in ATTRIBUUT_FUNCTIES if fn in uit}
+
+    def identificeer(self, fid, seconden=4.0):
+        """Lamp laten knipperen, om te zien of adres, kabel en DMX-modus kloppen."""
+        with self.lock:
+            self.zoek = {"fixture": int(fid), "tot": time.time() + seconden} if fid is not None else None
 
     # ------------------------------------------------------------ wijzigingen via de API
     def wijzig_show(self, delta):
@@ -1289,4 +1370,4 @@ def opslag_lus(engine):
                 print("Opslaan mislukt:", e, flush=True)
 
 
-MODI = {"kleur": KLEUR_MODI, "intensiteit": INTENSITEIT_MODI, "beweging": BEWEGING_MODI}
+MODI = {"kleur": KLEUR_MODI, "intensiteit": INTENSITEIT_MODI, "beweging": BEWEGING_MODI, "attribuut": ATTRIBUUT_MODI}

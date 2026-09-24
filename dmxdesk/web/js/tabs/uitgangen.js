@@ -3,8 +3,9 @@ import { K, api, esc, $, kloon, toast, vraag, laadState } from '../kern.js';
 
 let U = null, poorten = [];
 const vuil = () => U !== null && JSON.stringify(U) !== JSON.stringify(K.S.uitgangen);
-const SERIEEL = new Set(['opendmx', 'enttecpro']);
+const SERIEEL = new Set(['usb', 'opendmx', 'enttecpro']);
 const UITLEG = {
+  usb: 'Voor elke USB-DMX-kabel: DMXDesk vraagt de kabel eerst of hij een "Pro" is (met eigen processor), anders stuurt hij zelf het signaal (Open DMX). Kies dit als je niet zeker weet wat je hebt.',
   opendmx: 'Goedkope USB-DMX-kabel met FTDI-chip (Enttec Open DMX en klonen). De computer maakt het DMX-signaal zelf.',
   enttecpro: 'Enttec DMX USB Pro, DMXking ultraDMX en andere "Pro"-compatibele dongles.',
   artnet: 'Via het netwerk naar een Art-Net-node. Leeg IP-adres = broadcast naar het hele netwerk. Art-Net-universes tellen vanaf 0.',

@@ -186,6 +186,7 @@ class Handler(BaseHTTPRequestHandler):
             with e.lock:
                 data = copy.deepcopy({k: e.data[k] for k in sleutels})
                 data["programmer"] = copy.deepcopy(e.programmer)
+                data["attributen"] = e.attribuut_overzicht()
                 data["instellingen"] = {"pin": bool(e.data["instellingen"].get("pin_hash"))}
             data.update(versie=VERSIE, functies=FUNCTIES, soorten=SOORTEN, modi=MODI, uitgang_soorten=UITGANG_SOORTEN,
                         status=e.status_info(), bibliotheek=a.bibliotheek.info(),
@@ -334,6 +335,8 @@ class Handler(BaseHTTPRequestHandler):
             e.zet_fader(body["id"], body.get("waarde", 0))
         elif pad == "/api/test":
             e.zet_test(body.get("fixture"), body.get("waarden", []))
+        elif pad == "/api/zoek":
+            e.identificeer(body.get("fixture"), float(body.get("seconden") or 4))
         elif pad == "/api/uitgangen":
             e.zet_uitgangen(body)
         elif pad == "/api/audio":

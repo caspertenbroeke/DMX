@@ -1,5 +1,5 @@
 // Programmer: lampen kiezen en met de hand instellen (gaat vóór de effecten). Daarna opslaan als scène.
-import { K, api, doe, esc, $, $$, afremmen, clamp, dialoog, toast } from '../kern.js';
+import { K, api, doe, esc, $, $$, afremmen, clamp, dialoog, toast, invoer, laadState } from '../kern.js';
 import { Podium } from '../podium.js';
 
 const KLEUREN = [['#ff0000', 'Rood'], ['#ff5500', 'Oranje'], ['#ffcc00', 'Geel'], ['#00ff00', 'Groen'], ['#00ffff', 'Cyaan'],
@@ -80,19 +80,13 @@ function bediening() {
           <button data-pos="50,50">Midden</button><button data-pos="50,85">Publiek</button><button data-pos="50,10">Plafond</button><button data-pos="random">Verspreid</button></div>` : ''}
     </div>
     <div class="blok"><div class="paginakop" style="margin:0 0 6px"><h2 style="margin:0">Kanalen</h2><span class="vul"></span>
-        <label class="hint"><input type="checkbox" id="prAlle" ${alleKanalen ? 'checked' : ''}> alle kanalen</label></div>
+        <label class="hint"><input type="checkbox" id="prAlle" ${alleKanalen ? 'checked' : ''}> ook dimmer, kleur en positie</label></div>
       ${!prof ? '<p class="hint">Losse kanalen kun je instellen als alle gekozen lampen hetzelfde profiel hebben.</p>'
-        : !kanalen.length ? '<p class="hint">Dit profiel heeft geen extra kanalen (gobo, kleurwiel, …).</p>'
-        : kanalen.map(({ k, i }) => {
-          const nr = String(i + 1), v = rawNu[nr];
-          return `<div class="kanaalrij ${v !== undefined ? 'gezet' : ''}" data-rij="${nr}">
-            <span class="naam" title="${esc(k.naam)}">${nr}. ${esc(k.naam)}</span>
-            <input type="range" min="0" max="255" value="${v ?? k.standaard ?? 0}" data-kanaal="${nr}">
-            <input type="number" min="0" max="255" value="${v ?? ''}" placeholder="${k.standaard ?? 0}" data-kanaalnr="${nr}">
-            <button class="stil loslaten" data-loskanaal="${nr}">×</button>
-            ${k.opties && k.opties.length ? `<span></span><select data-optie="${nr}"><option value="">– kies –</option>
-              ${k.opties.map(o => `<option value="${o.van}" ${v !== undefined && v >= o.van && v <= o.tot ? 'selected' : ''}>${o.van}–${o.tot}: ${esc(o.naam)}</option>`).join('')}</select>` : ''}
-          </div>`; }).join('')}
+        : !kanalen.length ? '<p class="hint">Dit profiel heeft geen extra kanalen (gobo, kleurwiel, programma, …).</p>'
+        : `<p class="hint">Kies per kanaal wat de lamp moet doen, zoals in de handleiding. × = weer automatisch (effect of standaard).</p>
+          ${kanalen.map(({ k, i }) => kanaalKaart(k, i, rawNu[String(i + 1)])).join('')}
+          <div class="rij"><button id="prLook" ${Object.keys(rawNu).length ? '' : 'disabled'}>Opslaan als look…</button>
+            <span class="hint">Een look kan in de show op de beat wisselen (Effecten → Looks).</span></div>`}
     </div>`;
   const xy = $('#prXY');
   if (xy) {
@@ -105,6 +99,39 @@ function bediening() {
     xy.onpointerdown = e => { K.bezig = true; xy.setPointerCapture(e.pointerId); zetXY(e); xy.onpointermove = zetXY; };
     xy.onpointerup = xy.onpointercancel = () => { xy.onpointermove = null; };
   }
+}
+
+function actieveOptie(k, v) {
+  return (k.opties || []).findIndex(o => v >= o.van && v <= o.tot);
+}
+
+function kanaalKaart(k, i, v) {
+  const nr = String(i + 1), gezet = v !== undefined, w = gezet ? v : (k.standaard ?? 0);
+  const opties = k.opties || [], actief = actieveOptie(k, w);
+  return `<div class="kanaalkaart ${gezet ? 'gezet' : ''}" data-rij="${nr}">
+    <div class="kop"><b>${nr}. ${esc(k.naam)}</b><span class="hint">${esc(K.S.functies[k.functie] || k.functie)}</span><span class="vul"></span>
+      <code data-waarde="${nr}">${gezet ? v : 'auto'}</code><button class="stil loslaten" data-loskanaal="${nr}" title="Weer automatisch">×</button></div>
+    ${opties.length > 1 ? `<div class="opties">${opties.map((o, j) => `<button data-optiekn="${nr}" data-van="${o.van}" data-tot="${o.tot}"
+        class="${gezet && j === actief ? 'aan' : ''}"><small>${o.van}–${o.tot}</small>${esc(o.naam)}</button>`).join('')}</div>`
+      : opties.length === 1 ? `<p class="hint" style="margin:2px 0">${esc(opties[0].naam)}</p>` : ''}
+    <input type="range" min="0" max="255" value="${w}" data-kanaal="${nr}" aria-label="${esc(k.naam)}">
+  </div>`;
+}
+
+async function alsLookOpslaan() {
+  const f = eerste(); if (!f) return;
+  const waarden = { ...((K.S.programmer[f.id] || {}).kanalen || {}) };
+  if (!Object.keys(waarden).length) return toast('Stel eerst kanalen in', true);
+  const naam = await invoer('Naam van de look', '', `Bewaart ${Object.keys(waarden).length} kanaal/kanalen voor alle lampen met dit profiel.`);
+  if (!naam) return;
+  const P = JSON.parse(JSON.stringify(K.S.profielen));
+  const prof = P[f.profiel];
+  prof.looks = (prof.looks || []).filter(l => l.naam !== naam).concat([{ naam, waarden }]);
+  try {
+    await api('/api/profielen', P);
+    await laadState(true);
+    toast(`Look "${naam}" opgeslagen. In Effecten → Looks kies je hem, of laat je de looks op de beat wisselen.`);
+  } catch (e) { toast(e.message, true); }
 }
 
 function selectieGewijzigd() { lijst(); bediening(); if (podium) podium.teken(); }
@@ -183,23 +210,30 @@ export default {
         return bediening();
       }
       if (b.dataset.loskanaal) { zet({ kanalen: { [b.dataset.loskanaal]: null } }); return bediening(); }
+      if (b.dataset.optiekn) {
+        const van = Number(b.dataset.van), tot = Number(b.dataset.tot);
+        zet({ kanalen: { [b.dataset.optiekn]: tot - van <= 10 ? van : Math.round((van + tot) / 2) } });
+        return bediening();
+      }
+      if (b.id === 'prLook') return alsLookOpslaan();
     };
     el.oninput = e => {
       const i = e.target;
       if (i.id === 'prDim') { $('#prDimW').textContent = i.value; zet({ dim: Number(i.value) }); }
       else if (i.id === 'prKleur') zet({ kleur: i.value });
-      else if (i.dataset.kanaal || i.dataset.kanaalnr) {
-        const nr = i.dataset.kanaal || i.dataset.kanaalnr, v = clamp(Number(i.value) || 0, 0, 255);
-        const rij = i.closest('.kanaalrij');
-        if (i.dataset.kanaal) rij.querySelector('[data-kanaalnr]').value = v; else rij.querySelector('[data-kanaal]').value = v;
-        rij.classList.add('gezet');
+      else if (i.dataset.kanaal) {
+        const nr = i.dataset.kanaal, v = clamp(Number(i.value) || 0, 0, 255);
+        const kaart = i.closest('.kanaalkaart');
+        kaart.classList.add('gezet');
+        kaart.querySelector('[data-waarde]').textContent = v;
+        const knoppen = kaart.querySelectorAll('[data-optiekn]');
+        knoppen.forEach(b => b.classList.toggle('aan', v >= Number(b.dataset.van) && v <= Number(b.dataset.tot)));
         zet({ kanalen: { [nr]: v } });
       }
     };
     el.onchange = e => {
       const i = e.target;
       if (i.id === 'prAlle') { alleKanalen = i.checked; bediening(); }
-      else if (i.dataset.optie && i.value !== '') { zet({ kanalen: { [i.dataset.optie]: Number(i.value) } }); bediening(); }
       else if (i.id === 'prKleur') bediening();
     };
   },

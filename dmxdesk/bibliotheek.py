@@ -142,7 +142,41 @@ def ofl_kanaal(naam, ch, fijn=0, wielen=None, kop=0):
             snel_eerst = str(strobe.get("speedStart", "")).lower() in ("fast", "100%")
             strobe_w = _strobe_waarde(_dmx_waarde(van), _dmx_waarde(tot, 255), not snel_eerst)
         return kanaal(naam, "strobe", std, strobe_w, kop=kop, opties=opties)
-    return kanaal(naam, "fixed", standaard, kop=kop, opties=opties if len(caps) > 1 else None)
+    return kanaal(naam, ofl_functie(naam, caps, wielen or {}), standaard, kop=kop, opties=opties if len(caps) > 1 else None)
+
+
+OFL_FUNCTIE = {
+    "ColorPreset": "kleurmacro", "ColorTemperature": "cto", "Prism": "prisma", "PrismRotation": "prisma",
+    "Focus": "focus", "Zoom": "grootte", "BeamAngle": "grootte", "Iris": "iris", "IrisEffect": "iris", "Frost": "frost",
+    "FrostEffect": "frost", "Effect": "programma", "EffectParameter": "programma", "EffectSpeed": "programma_snelheid",
+    "EffectDuration": "programma_snelheid", "Speed": "programma_snelheid", "PanTiltSpeed": "snelheid",
+    "SoundSensitivity": "geluid", "Maintenance": "reset", "Rotation": "rotatie", "BeamPosition": "rotatie",
+    "PanContinuous": "rotatie", "TiltContinuous": "rotatie",
+}
+
+
+def ofl_functie(naam, caps, wielen):
+    """Wat een kanaal met keuzes doet, uit de soort die het meest voorkomt (gobo, kleurwiel, prisma, …)."""
+    telling = {}
+    for c in caps:
+        t = c.get("type")
+        if t and t not in ("NoFunction", "Generic", "Time"):
+            telling[t] = telling.get(t, 0) + 1
+    if not telling:
+        return "fixed"
+    t = max(telling, key=telling.get)
+    if t.startswith("Wheel"):
+        wiel = next((c.get("wheel") for c in caps if c.get("wheel")), None) or naam
+        if isinstance(wiel, list):
+            wiel = wiel[0] if wiel else naam
+        slots = [sl.get("type", "") for sl in (wielen.get(wiel) or {}).get("slots", [])]
+        kleur = sum(1 for x in slots if x == "Color") >= max(1, sum(1 for x in slots if "Gobo" in x))
+        if not slots:
+            kleur = any(w in naam.lower() for w in ("color", "colour", "kleur"))
+        if t in ("WheelRotation", "WheelSlotRotation"):
+            return "kleurmacro" if kleur else "patroon_draai"
+        return "kleurmacro" if kleur else "patroon"
+    return OFL_FUNCTIE.get(t, "fixed")
 
 
 def _pixel_sleutels(matrix):
@@ -267,7 +301,31 @@ QLC_PRESET = {
     "IntensityYellow": "yellow",
     "PositionPan": "pan", "PositionPanFine": "pan_fine", "PositionTilt": "tilt", "PositionTiltFine": "tilt_fine",
     "ShutterStrobeSlowFast": "strobe", "ShutterStrobeFastSlow": "strobe",
+    "ColorMacro": "kleurmacro", "ColorWheel": "kleurmacro", "ColorCTOMixer": "cto", "ColorCTCMixer": "cto",
+    "ColorCTBMixer": "cto", "GoboWheel": "patroon", "GoboIndex": "patroon_draai",
+    "PrismRotationSlowFast": "prisma", "PrismRotationFastSlow": "prisma",
+    "BeamFocusNearFar": "focus", "BeamFocusFarNear": "focus", "BeamZoomSmallBig": "grootte", "BeamZoomBigSmall": "grootte",
+    "ShutterIrisMinToMax": "iris", "ShutterIrisMaxToMin": "iris",
+    "SpeedPanSlowFast": "snelheid", "SpeedPanFastSlow": "snelheid", "SpeedTiltSlowFast": "snelheid",
+    "SpeedTiltFastSlow": "snelheid", "SpeedPanTiltSlowFast": "snelheid", "SpeedPanTiltFastSlow": "snelheid",
+    "NoFunction": "fixed",
 }
+QLC_GROEP = {"Colour": "kleurmacro", "Gobo": "patroon", "Prism": "prisma", "Effect": "programma", "Maintenance": "reset",
+             "Nothing": "fixed"}
+
+
+def qlc_groep_functie(groep, naam):
+    n = naam.lower()
+    if groep == "Beam":
+        for woord, fn in (("zoom", "grootte"), ("focus", "focus"), ("iris", "iris"), ("frost", "frost")):
+            if woord in n:
+                return fn
+        return "grootte"
+    if groep == "Speed":
+        return "snelheid" if any(w in n for w in ("pan", "tilt", "movement", "beweging")) else "programma_snelheid"
+    if groep == "Gobo" and "rot" in n:
+        return "patroon_draai"
+    return QLC_GROEP.get(groep, "fixed")
 QLC_KLEUR = {"Red": "red", "Green": "green", "Blue": "blue", "White": "white", "Amber": "amber", "UV": "uv",
              "Cyan": "cyan", "Magenta": "magenta", "Yellow": "yellow"}
 QLC_SOORT = {"Moving Head": "moving", "Scanner": "moving", "Color Changer": "par", "LED Bar (Beams)": "bar",
@@ -318,7 +376,7 @@ def qxf_naar_profielen(tekst):
             elif groep_naam == "Shutter" or preset.startswith("Shutter"):
                 fn = "strobe"
             else:
-                fn = "fixed"
+                fn = qlc_groep_functie(groep_naam, naam)
         strobe_w = rook_w = None
         if fn == "strobe":
             for a, b, t, p in caps:

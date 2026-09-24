@@ -21,6 +21,7 @@ except ImportError:          # zonder pyserial werken alleen de netwerkuitgangen
 from . import NAAM
 
 FTDI_VID = 0x0403
+DMX_VIDS = {FTDI_VID, 0x16D0}      # FTDI (de meeste kabels, ook Enttec) en DMXking
 ARTNET_POORT = 6454
 SACN_POORT = 5568
 FPS = 40
@@ -71,7 +72,7 @@ def poorten():
             if sys.platform == "darwin" and p.device.startswith("/dev/tty."):
                 continue     # op de Mac altijd de /dev/cu.-variant gebruiken
             uit.append({"poort": p.device, "naam": p.description if p.description not in (None, "n/a") else p.device,
-                        "ftdi": p.vid == FTDI_VID, "fabrikant": p.manufacturer or "", "serienummer": p.serial_number or ""})
+                        "ftdi": p.vid in DMX_VIDS or "dmx" in (p.description or "").lower(), "fabrikant": p.manufacturer or "", "serienummer": p.serial_number or ""})
     if not uit and sys.platform.startswith("linux"):
         for pad in sorted(glob.glob("/dev/ttyUSB*")):
             uit.append({"poort": pad, "naam": pad, "ftdi": True, "fabrikant": "", "serienummer": ""})
@@ -215,6 +216,47 @@ class EnttecProUitgang(SerieelUitgang):
         self.ser.write(enttec_pro_pakket(data))
 
 
+class UsbUitgang(SerieelUitgang):
+    """USB-DMX-kabel van onbekend type: vraagt eerst of het een Enttec Pro(-kloon) is, anders Open DMX.
+
+    Een Pro heeft een eigen processor en antwoordt op 'Get Widget Parameters' (label 3). Een simpele FTDI-kabel
+    (Open DMX) zegt niets terug; dan maakt de computer het DMX-signaal zelf."""
+
+    def openen(self):
+        self.open_serieel(baudrate=57600)
+        self.pro = self.is_pro()
+        if not self.pro:
+            self.ser.baudrate = 250000
+            self.ser.stopbits = serial.STOPBITS_TWO
+        self.status(True, f"{'Enttec Pro-compatibel' if self.pro else 'Open DMX'} herkend ({self.poort})")
+
+    def is_pro(self):
+        oud = self.ser.timeout
+        try:
+            self.ser.timeout = 0.1
+            self.ser.reset_input_buffer()
+            self.ser.write(b"\x7e\x03\x02\x00\x00\x00\xe7")
+            self.ser.flush()
+            eind = time.time() + 0.4
+            antwoord = b""
+            while time.time() < eind and len(antwoord) < 8:
+                antwoord += self.ser.read(self.ser.in_waiting or 1)
+            return b"\x7e\x03" in antwoord
+        except Exception:
+            return False
+        finally:
+            try:
+                self.ser.timeout = oud
+            except Exception:
+                pass
+
+    def stuur(self, data):
+        if self.pro:
+            self.ser.write(enttec_pro_pakket(data))
+        else:
+            OpenDmxUitgang.stuur(self, data)
+
+
 class NetwerkUitgang(Uitgang):
     def __init__(self, engine, cfg, beheer):
         super().__init__(engine, cfg, beheer)
@@ -269,7 +311,7 @@ class SacnUitgang(NetwerkUitgang):
             self.sock.sendto(sacn_pakket(self.universe, self.volgnummer, data, self.beheer.cid), self.doel)
 
 
-SOORTEN = {"opendmx": OpenDmxUitgang, "enttecpro": EnttecProUitgang, "artnet": ArtNetUitgang, "sacn": SacnUitgang}
+SOORTEN = {"usb": UsbUitgang, "opendmx": OpenDmxUitgang, "enttecpro": EnttecProUitgang, "artnet": ArtNetUitgang, "sacn": SacnUitgang}
 
 
 class UitvoerBeheer:

@@ -86,11 +86,37 @@ function teken(el) {
       <div class="rij"><label>Wissel elke</label>${keuzelijst('looks.elke', [[4, '4 beats'], [8, '8 beats'], [16, '16 beats'], [32, '32 beats']], s.looks.elke)}</div>
       ${lookProfielen.length ? lookProfielen.map(([pid, p]) => `<h3>${esc(p.naam)}</h3><div class="knoppen">
           ${p.looks.map((l, i) => `<button data-look="${esc(pid)}" data-idx="${i}" class="${s.looks.modus === 'vast' && (s.looks.keuze[pid] || 0) === i ? 'aan' : ''}">${esc(l.naam)}</button>`).join('')}</div>`).join('')
-        : '<p class="hint">Geen lampen met looks. Looks maak je in het tabblad Profielen.</p>'}
+        : '<p class="hint">Geen lampen met looks. Een look maak je in de Programmer (Opslaan als look) of in Profielen.</p>'}
     </div>
+
+    ${attribuutBlok(S)}
   </div>`;
   $('#eigenKleur').addEventListener('change', e => zetShow('kleur.palet', (s.kleur.palet || []).concat([e.target.value]).slice(-8)));
   energie(K.L);
+}
+
+const ELKE = [[1, '1 beat'], [2, '2 beats'], [4, '4 beats'], [8, '8 beats'], [16, '16 beats'], [32, '32 beats']];
+function attribuutBlok(S) {
+  const lijst = Object.entries(S.attributen || {});
+  if (!lijst.length) return '';
+  const cfgs = S.show.attributen || {};
+  return `<div class="blok" style="grid-column:1/-1">
+    <h2>Laser, patronen en programma's</h2>
+    <p class="hint">Deze functies van je lampen kan de show zelf aansturen: op de beat wisselen, willekeurig, of harder/sneller als de
+      muziek meer energie heeft. Staat een functie op Uit, dan geldt de standaard uit het profiel (of wat je in de Programmer instelt).</p>
+    <div class="raster" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
+    ${lijst.map(([fn, info]) => {
+      const cfg = cfgs[fn] || {}, modus = cfg.modus || 'uit', keuzes = cfg.keuzes || [];
+      const aantal = keuzes.length ? info.opties.filter(o => keuzes.includes(o)).length : info.opties.length;
+      return `<div class="kanaalkaart ${modus !== 'uit' ? 'gezet' : ''}">
+        <div class="kop"><b>${esc(S.functies[fn] || fn)}</b><span class="hint">${esc(info.lampen.join(', '))}</span></div>
+        <div class="opties">${S.modi.attribuut.map(([m, t]) => `<button data-set="attributen.${fn}.modus" data-val='"${m}"' class="${m === modus ? 'aan' : ''}">${esc(t)}</button>`).join('')}</div>
+        ${modus === 'wissel' || modus === 'random' ? `<div class="rij"><label>Elke</label>${keuzelijst(`attributen.${fn}.elke`, ELKE, cfg.elke || 4)}</div>` : ''}
+        ${info.opties.length > 1 ? `<details><summary class="hint">Welke keuzes doen mee (${aantal} van ${info.opties.length})</summary>
+          ${info.opties.map(o => `<label class="rij" style="margin:3px 0;color:var(--tekst)"><input type="checkbox" data-attrkeuze="${fn}" value="${esc(o)}"
+            ${!keuzes.length || keuzes.includes(o) ? 'checked' : ''}> ${esc(o)}</label>`).join('')}</details>` : ''}
+      </div>`; }).join('')}
+    </div></div>`;
 }
 
 function energie(L) {
@@ -140,6 +166,13 @@ export default {
     };
     el.onchange = e => {
       const i = e.target;
+      if (i.dataset.attrkeuze) {
+        const fn = i.dataset.attrkeuze;
+        const gekozen = [...el.querySelectorAll(`[data-attrkeuze="${fn}"]`)].filter(x => x.checked).map(x => x.value);
+        if (!gekozen.length) { i.checked = true; return toast('Minimaal één keuze nodig', true); }
+        const alle = K.S.attributen[fn].opties.length === gekozen.length;
+        return zetShow(`attributen.${fn}.keuzes`, alle ? [] : gekozen);
+      }
       if ((i.tagName === 'SELECT' || i.type === 'number') && i.dataset.set) zetShow(i.dataset.set, i.dataset.num ? Number(i.value) : i.value);
       else if (i.type === 'range' && i.dataset.set) zetShow(i.dataset.set, Number(i.value));
     };
