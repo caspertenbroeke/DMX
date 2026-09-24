@@ -52,16 +52,21 @@ def spotify_speaker(poort):
 
 
 def librespot_over():
-    """Draait er nog een librespot (de Spotify-speaker) nadat DMXDesk gestopt is? Dat mag niet."""
-    time.sleep(2)
-    try:
-        if sys.platform == "win32":
-            uit = subprocess.run(["tasklist", "/FI", "IMAGENAME eq librespot.exe", "/NH"],
-                                 capture_output=True, text=True).stdout
-            return "librespot" in uit.lower()
-        return subprocess.run(["pgrep", "-x", "librespot"], capture_output=True).returncode == 0
-    except OSError:
-        return False
+    """Draait er nog een librespot (de Spotify-speaker) nadat DMXDesk gestopt is? Dat mag niet (na ~5 s)."""
+    for _ in range(8):
+        time.sleep(1)
+        try:
+            if sys.platform == "win32":
+                uit = subprocess.run(["tasklist", "/FI", "IMAGENAME eq librespot.exe", "/NH"],
+                                     capture_output=True, text=True).stdout
+                over = "librespot" in uit.lower()
+            else:
+                over = subprocess.run(["pgrep", "-x", "librespot"], capture_output=True).returncode == 0
+        except OSError:
+            return False
+        if not over:
+            return False
+    return True
 
 
 def wacht_op(poort, proc, seconden=90):

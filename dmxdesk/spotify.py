@@ -54,7 +54,7 @@ def _geen_venster():
 
 # librespot moet mee stoppen als DMXDesk stopt, ook bij een crash of 'taak beëindigen' (anders blijft er een
 # speaker zonder geluid in Spotify staan). Windows: een 'job' die alles erin afsluit als DMXDesk weg is.
-# Linux: een signaal als de ouder verdwijnt. (macOS: bij de volgende start opgeruimd, zie ruim_oude_op.)
+# Linux: een signaal als de ouder verdwijnt. macOS: een piepkleine waakhond (sh) die elke 2 s kijkt.
 _JOB = None
 _LIBC = None
 if sys.platform.startswith("linux"):
@@ -76,8 +76,20 @@ def _start_opties():
     return _geen_venster()
 
 
+def _waakhond(proc):
+    try:
+        subprocess.Popen(["/bin/sh", "-c", f"while kill -0 {os.getpid()} 2>/dev/null && kill -0 {proc.pid} 2>/dev/null; "
+                          f"do sleep 2; done; kill {proc.pid} 2>/dev/null"],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    except OSError:
+        pass
+
+
 def _stopt_mee(proc):
     global _JOB
+    if sys.platform == "darwin":
+        return _waakhond(proc)
     if sys.platform != "win32":
         return
     try:
