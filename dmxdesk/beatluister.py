@@ -5,19 +5,23 @@ Analyseert de muziek (beat, BPM, melodie, energie, drops) en stuurt alles naar D
 Gebruikt aubio voor de beat als dat er is (Raspberry Pi), anders een eigen beat-zoeker met alleen numpy.
 De app zelf gebruikt de klasse Analyse ook rechtstreeks voor de geluidskaart (zie audio.py).
 
-  beatluister.py spotify      leest het geluid van librespot (--backend pipe) via stdin,
-                              speelt het af met aplay en analyseert het onderweg
-  beatluister.py mpd <fifo>   leest de fifo-uitgang van MPD en analyseert alleen
-                              (het afspelen doet MPD zelf)
+  beatluister.py spotify [--voorsprong 4]     leest het geluid van librespot (--backend pipe) via stdin,
+                                              analyseert het en speelt het af met aplay
+  beatluister.py pijp <bron> [--voorsprong 4] hetzelfde voor een andere bron, bijv. 'mpd' (MPD pipe-uitgang)
+  beatluister.py mpd <fifo>                   leest de fifo-uitgang van MPD en analyseert alleen
+                                              (het afspelen doet MPD zelf)
+
+--voorsprong: zoveel seconden eerder analyseren dan het geluid te horen is. Dan staat de beat vanaf de
+eerste tel goed en ziet de lichtshow drops aankomen. Pauze, volgende nummer en volume gaan dan ook zoveel later.
 
 Dit bestand moet op zichzelf kunnen draaien (op de Pi staat het in /usr/local/lib/zeutekauwn/).
 """
 import json
 import os
-import select
 import socket
 import subprocess
 import sys
+import threading
 import time
 from collections import deque
 
@@ -360,73 +364,170 @@ class Analyse:
                         "conf": float(self.tempo.get_confidence()), "niveau": round(self.niveau, 4)})
 
 
-def start_aplay():
-    p = subprocess.Popen(["aplay", "-q", "-D", APLAY_DEVICE, "-t", "raw", "-f", "S16_LE", "-r", str(SR), "-c", "2",
-                          "--buffer-time=150000"], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    try:
-        import fcntl       # alleen Linux (de Pi); bestaat niet op Windows
-        fcntl.fcntl(p.stdin.fileno(), F_SETPIPE_SZ, 8192)   # kleine pijp = weinig vertraging
-    except (ImportError, OSError):
-        pass
-    return p
+class AplayUitgang:
+    """Geluid naar de geluidskaart van de Pi via aplay (dmix werkt daar niet: alleen open zolang er muziek is)."""
+
+    def __init__(self, apparaat=APLAY_DEVICE):
+        self.apparaat, self.p = apparaat, None
+
+    def start(self):
+        self.p = subprocess.Popen(["aplay", "-q", "-D", self.apparaat, "-t", "raw", "-f", "S16_LE", "-r", str(SR), "-c", "2",
+                                   "--buffer-time=150000"], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        try:
+            import fcntl       # alleen Linux (de Pi); bestaat niet op Windows
+            fcntl.fcntl(self.p.stdin.fileno(), F_SETPIPE_SZ, 8192)   # kleine pijp = weinig vertraging
+        except (ImportError, OSError):
+            pass
+
+    def schrijf(self, data):
+        if self.p is None or self.p.poll() is not None:
+            raise OSError("aplay draait niet")
+        self.p.stdin.write(data)
+        self.p.stdin.flush()
+
+    def stop(self):
+        if self.p is None:
+            return
+        try:
+            self.p.stdin.close()
+        except OSError:
+            pass
+        try:
+            self.p.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            self.p.kill()
+        self.p = None
 
 
-def stop_aplay(p):
-    try:
-        p.stdin.close()
-    except OSError:
-        pass
-    try:
-        p.wait(timeout=2)
-    except subprocess.TimeoutExpired:
-        p.kill()
+class Doorgever:
+    """Muziek met voorsprong doorgeven: eerst analyseren, pas `voorsprong` seconden later afspelen.
+
+    Zo weet de lichtshow vooraf wanneer elke beat, noot en drop te horen is (en kan hij naar een drop
+    opbouwen). Spotify (librespot) en MPD leveren sneller dan echte tijd; de rij houdt ze in toom en
+    het afspelen bepaalt het tempo. Bij een pauze speelt de rij nog leeg en gaat de geluidskaart dicht."""
+
+    BPS = SR * FRAME_BYTES      # bytes per seconde
+
+    def __init__(self, analyse, uitgang, voorsprong=0.0, melding=None):
+        """melding: functie die aangeroepen wordt als 'speelt' of 'fout' verandert (voor een statusscherm)."""
+        self.a, self.uitgang, self.melding = analyse, uitgang, melding
+        self.voorsprong = max(0.0, float(voorsprong))
+        self.max_bytes = max(8192, int(self.voorsprong * self.BPS))
+        self.rij = deque()
+        self.in_rij = 0
+        self.cond = threading.Condition()
+        self.klaar = False
+        self.bezig = 0              # bytes die nu naar de geluidskaart geschreven worden
+        self.stoppen = threading.Event()
+        self.speelt = False
+        self.fout = None            # waarom de geluidskaart niet open kan
+
+    def _zet(self, speelt, fout):
+        if (speelt, fout) != (self.speelt, self.fout):
+            self.speelt, self.fout = speelt, fout
+            if self.melding:
+                self.melding()
+
+    def lees(self, lees_blok):
+        """Leest tot het einde: lees_blok() geeft bytes, b"" = einde. Analyseert meteen, afspelen gebeurt later."""
+        rest, laatste = b"", time.time()
+        try:
+            while not self.stoppen.is_set():
+                data = lees_blok()
+                if not data:
+                    break
+                nu = time.time()
+                if nu - laatste > 0.6:          # na een pauze: opnieuw beginnen met luisteren
+                    self.a.reset()
+                laatste = nu
+                data = rest + data
+                heel = len(data) - len(data) % FRAME_BYTES   # alleen hele samples, anders ruis na een pauze
+                data, rest = data[:heel], data[heel:]
+                if not data:
+                    continue
+                with self.cond:
+                    while self.in_rij >= self.max_bytes and not self.stoppen.is_set():
+                        self.cond.wait(0.1)
+                    self.rij.append(data)
+                    self.in_rij += len(data)
+                    # dit stukje is de geluidskaart in na alles wat er nog voor staat (rij + wat nu geschreven wordt);
+                    # zelfde moment als vroeger 'net geschreven', dus de schuiven 'licht gelijk zetten' blijven kloppen
+                    t_speel = (time.time() + (self.in_rij + self.bezig) / self.BPS
+                               + getattr(self.uitgang, "latentie", 0.0))
+                    self.cond.notify_all()
+                self.a.voer(data, t_speel)
+        finally:
+            with self.cond:
+                self.klaar = True
+                self.cond.notify_all()
+
+    def speel(self):
+        """Speelt de rij af; geeft de geluidskaart vrij als er even niets is."""
+        open_, leeg_sinds, niet_voor = False, None, 0.0
+        while not self.stoppen.is_set():
+            with self.cond:
+                if not self.rij:
+                    if self.klaar:
+                        break
+                    self.cond.wait(0.25)
+                data = self.rij.popleft() if self.rij else None
+                if data is not None:
+                    self.in_rij -= len(data)
+                    self.bezig = len(data)
+                    self.cond.notify_all()
+            nu = time.time()
+            if data is None:
+                leeg_sinds = leeg_sinds or nu
+                if open_ and nu - leeg_sinds > 0.6:      # gepauzeerd: geluidskaart vrijgeven
+                    self.uitgang.stop()
+                    open_ = False
+                    self._zet(False, None)
+                continue
+            leeg_sinds = None
+            if not open_ and nu >= niet_voor:
+                try:
+                    self.uitgang.start()
+                    open_ = True
+                except Exception as e:
+                    niet_voor = nu + 0.3
+                    self._zet(False, str(e) or type(e).__name__)
+            geschreven = False
+            if open_:
+                try:
+                    self.uitgang.schrijf(data)
+                    geschreven = True
+                    self._zet(True, None)
+                except Exception:
+                    self.uitgang.stop()
+                    open_, niet_voor = False, time.time() + 0.3     # geluidskaart bezet: straks opnieuw
+            if not geschreven:
+                time.sleep(len(data) / self.BPS)               # zelf het tempo bewaken
+            self.bezig = 0
+        if open_:
+            self.uitgang.stop()
+        self._zet(False, self.fout)
+
+    def draai(self, lees_blok):
+        """lees() en speel() tegelijk; komt terug als de invoer ophoudt en alles gespeeld is."""
+        speler = threading.Thread(target=self.speel, daemon=True, name="afspelen")
+        speler.start()
+        self.lees(lees_blok)
+        speler.join()
+
+    def stop(self):
+        self.stoppen.set()
+        with self.cond:
+            self.cond.notify_all()
 
 
-def spotify():
-    a = Analyse("spotify")
+def doorgeven(bron, voorsprong):
+    """librespot of MPD (via stdin) analyseren en met voorsprong afspelen op de geluidskaart."""
     fd = sys.stdin.buffer.fileno()
-    speler = None
-    laatste_data = 0.0
-    niet_voor = 0.0        # na een mislukte start (geluidskaart bezet) even wachten
-    rest = b""             # librespot levert willekeurige stukjes; alleen hele samples (4 bytes) doorgeven,
-                           # anders begint aplay na een pauze midden in een sample = harde ruis
-    while True:
-        klaar, _, _ = select.select([fd], [], [], 0.25)
-        nu = time.time()
-        if not klaar:
-            if speler and nu - laatste_data > 0.6:     # Spotify gepauzeerd: geluidskaart vrijgeven
-                stop_aplay(speler)
-                speler = None
-                a.reset()
-            continue
-        data = os.read(fd, 8192)
-        if not data:
-            break
-        laatste_data = nu
-        data = rest + data
-        heel = len(data) - len(data) % FRAME_BYTES
-        data, rest = data[:heel], data[heel:]
-        if not data:
-            continue
-        if (speler is None or speler.poll() is not None) and nu >= niet_voor:
-            speler = start_aplay()
-        geschreven = False
-        if speler is not None:
-            try:
-                speler.stdin.write(data)
-                speler.stdin.flush()
-                geschreven = True
-            except (BrokenPipeError, OSError, ValueError):
-                speler = None
-                niet_voor = time.time() + 0.3
-        if not geschreven:
-            time.sleep(len(data) / (SR * FRAME_BYTES))   # zelf het tempo bewaken
-        a.voer(data, time.time())
-    if speler:
-        stop_aplay(speler)
+    Doorgever(Analyse(bron), AplayUitgang(), voorsprong).draai(lambda: os.read(fd, 8192))
 
 
 def mpd(pad):
+    """Alleen analyseren (het afspelen doet MPD zelf): leest de fifo-uitgang van MPD."""
     a = Analyse("mpd")
     while True:
         try:
@@ -443,11 +544,23 @@ def mpd(pad):
                 a.voer(data, time.time())
 
 
+def _voorsprong(args):
+    if "--voorsprong" in args:
+        try:
+            return float(args[args.index("--voorsprong") + 1])
+        except (IndexError, ValueError):
+            pass
+    return 0.0
+
+
 if __name__ == "__main__":
-    if len(sys.argv) >= 2 and sys.argv[1] == "spotify":
-        spotify()
-    elif len(sys.argv) >= 3 and sys.argv[1] == "mpd":
-        mpd(sys.argv[2])
+    args = sys.argv[1:]
+    if args and args[0] == "spotify":
+        doorgeven("spotify", _voorsprong(args))
+    elif len(args) >= 2 and args[0] == "pijp":
+        doorgeven(args[1], _voorsprong(args))
+    elif len(args) >= 2 and args[0] == "mpd":
+        mpd(args[1])
     else:
         print(__doc__)
         sys.exit(2)

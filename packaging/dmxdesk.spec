@@ -8,11 +8,17 @@ IS_MAC, IS_WIN = sys.platform == "darwin", sys.platform == "win32"
 ICOON = os.path.join(SPECPATH, "icoon.ico" if IS_WIN else "icoon.png")
 
 datas = [(os.path.join(PKG, "web"), "dmxdesk/web"), (os.path.join(PKG, "data"), "dmxdesk/data")]
+# Spotify-speaker: librespot (gebouwd met: cargo install librespot --root .librespot, zie de workflow)
+LIBRESPOT = os.environ.get("DMXDESK_LIBRESPOT_BOUW") or os.path.join(
+    ROOT, ".librespot", "bin", "librespot.exe" if IS_WIN else "librespot")
+binaries = [(LIBRESPOT, "dmxdesk/bin")] if os.path.isfile(LIBRESPOT) else []
+print("librespot:", LIBRESPOT if binaries else "NIET gevonden - de app wordt gebouwd zonder Spotify-speaker")
 verborgen = ["serial.tools.list_ports", "mido.backends.rtmidi", "qrcode.image.svg"]
 
 a = Analysis(
     [os.path.join(SPECPATH, "start.py")],
     pathex=[ROOT],
+    binaries=binaries,
     datas=datas,
     hiddenimports=verborgen,
     excludes=["tkinter", "PIL", "matplotlib", "PyQt5", "PyQt6", "PySide2", "PySide6", "IPython", "pytest"],
@@ -41,7 +47,9 @@ if IS_MAC:
             "CFBundleShortVersionString": os.environ.get("DMXDESK_VERSIE", "2.0.0"),
             "NSHighResolutionCapable": True,
             "NSMicrophoneUsageDescription": "DMXDesk luistert naar de muziek om de lichtshow op de beat te laten lopen.",
-            "NSLocalNetworkUsageDescription": "DMXDesk stuurt licht via het netwerk (Art-Net/sACN) en laat je telefoon meebedienen.",
+            "NSLocalNetworkUsageDescription": "DMXDesk stuurt licht via het netwerk (Art-Net/sACN), laat je telefoon "
+                                              "meebedienen en verschijnt in Spotify als speaker.",
+            "NSBonjourServices": ["_spotify-connect._tcp"],
             "LSApplicationCategoryType": "public.app-category.music",
         },
     )

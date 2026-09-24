@@ -9,3 +9,4 @@ packaging/icoon.ico
 node_modules/
 /show.json
 /show.json.*
+.librespot/

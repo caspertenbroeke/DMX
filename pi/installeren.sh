@@ -21,6 +21,11 @@ echo "$GEBRUIKER ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/syst
   | sudo tee /etc/sudoers.d/dmxdesk > /dev/null
 sudo chmod 440 /etc/sudoers.d/dmxdesk
 
+# Spotify (raspotify): geluid via de beat-luisteraar, met 4 s voorsprong voor het licht
+if [ -d /etc/raspotify ]; then
+  sudo install -D -m 644 "$MAP/pi/raspotify-beat.conf" /etc/systemd/system/raspotify.service.d/beat.conf
+fi
+
 sudo systemctl daemon-reload
 sudo systemctl enable zeutekauwn-dmx
 sudo systemctl restart zeutekauwn-dmx

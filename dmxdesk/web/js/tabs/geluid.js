@@ -1,8 +1,47 @@
-// Geluid: waar de beat vandaan komt (geluidskaart of de beat-luisteraar op de Pi) en het gelijkzetten van licht en muziek.
+// Geluid: DMXDesk als Spotify-speaker, waar de beat vandaan komt (geluidskaart of de beat-luisteraar op de Pi)
+// en het gelijkzetten van licht en muziek.
 import { K, api, doe, esc, $, afremmen, zetShow } from '../kern.js';
 
-let apparaten = null;
-const BRONNAAM = { audio: 'Geluidskaart', spotify: 'Spotify (Pi)', mpd: 'Mp3/MPD (Pi)' };
+let apparaten = null, uitvoer = null;
+const BRONNAAM = { audio: 'Geluidskaart', connect: 'Spotify-speaker', spotify: 'Spotify (Pi)', mpd: 'Mp3/MPD (Pi)' };
+
+async function laadUitvoer() {
+  try { uitvoer = await api('/api/spotify/uitvoer'); } catch (e) { uitvoer = { beschikbaar: false, apparaten: [] }; }
+  if ($('#glSpotify')) spotify();
+}
+
+function spotifyStatus(st, cfg) {
+  if (!cfg.aan) return 'Uit';
+  if (st.fout) return `<span class="fout">${esc(st.fout)}</span>`;
+  if (!st.aan) return 'Starten…';
+  if (st.speelt) return `<i class="dot ok"></i> Speelt${st.nummer ? `: <b>${esc(st.nummer)}</b>` : ''} (licht ${cfg.voorsprong} s vooruit)`;
+  if (st.verbonden) return `<i class="dot half"></i> Verbonden met Spotify, wacht op muziek${st.nummer ? ` (laatst: ${esc(st.nummer)})` : ''}`;
+  return `<i class="dot half"></i> Klaar: kies <b>${esc(cfg.naam)}</b> als speaker in de Spotify-app`;
+}
+
+function spotify() {
+  const S = K.S, cfg = S.spotify, st = (K.L.s || S.status).spotify || {};
+  const lijst = uitvoer ? uitvoer.apparaten : [];
+  $('#glSpotify').innerHTML = !st.beschikbaar
+    ? `<p class="hint">Deze installatie heeft geen ingebouwde Spotify-speaker${st.fout ? ` (${esc(st.fout)})` : ''}.</p>
+       <p class="hint">Op de Raspberry Pi doet <b>raspotify</b> dit: kies in Spotify de speaker van de Pi. De muziek loopt daar ook
+         4 seconden vooruit door de beat-luisteraar (zie de LEESMIJ).</p>`
+    : `<div class="knoppen twee"><button data-spotify="aan" class="${cfg.aan ? 'aan' : ''}">SPEAKER AAN</button>
+         <button data-spotify="uit" class="${!cfg.aan ? 'aan' : ''}">UIT</button></div>
+       <p class="hint" id="glSpStatus">${spotifyStatus(st, cfg)}</p>
+       <div class="rij"><label>Naam in Spotify</label><input id="glSpNaam" value="${esc(cfg.naam)}" maxlength="40" style="flex:1"></div>
+       <div class="rij"><label>Afspelen via</label><select id="glSpUit" style="flex:1">
+         <option value="">Standaard-luidspreker van het systeem</option>
+         ${lijst.map(d => `<option value="${esc(d.naam)}" ${d.naam === cfg.apparaat ? 'selected' : ''}>${esc(d.naam)}</option>`).join('')}
+         ${cfg.apparaat && !lijst.some(d => d.naam === cfg.apparaat) ? `<option value="${esc(cfg.apparaat)}" selected>${esc(cfg.apparaat)} (niet gevonden)</option>` : ''}
+       </select><button class="stil" id="glSpVernieuw" title="Opnieuw zoeken">↻</button></div>
+       <div class="rij"><label>Licht vooruit</label><input type="range" min="0" max="10" step="0.5" value="${cfg.voorsprong}" id="glSpVoor">
+         <span class="waarde">${cfg.voorsprong} s</span></div>
+       <p class="hint">Open Spotify op je telefoon of computer (zelfde wifi), tik op het speaker-icoon en kies <b>${esc(cfg.naam)}</b>,
+         net als bij Sonos. DMXDesk hoort de muziek eerst en speelt hem <b>${cfg.voorsprong} seconden later</b> af: zo weet de lichtshow vooraf
+         waar elke beat en drop valt en bouwt hij op naar de drop. Spotify Premium is nodig (geldt voor elke Spotify-speaker).
+         ${S.systeem.platform === 'win32' ? 'Windows vraagt de eerste keer of <b>librespot</b> het netwerk mag gebruiken: kies <b>Toestaan</b> (privé-netwerk).' : ''}</p>`;
+}
 
 async function laadApparaten() {
   try { apparaten = await api('/api/audio/apparaten'); } catch (e) { apparaten = { beschikbaar: false, apparaten: [] }; }
@@ -46,6 +85,7 @@ function teken(el) {
   const s = K.S.show, b = s.beat;
   el.innerHTML = `<div class="paginakop"><h1>Geluid</h1><span class="hint">DMXDesk luistert mee en zet het licht op de beat.</span></div>
   <div class="raster">
+    <div class="blok"><h2>Spotify-speaker</h2><div id="glSpotify"></div></div>
     <div class="blok"><h2>Geluidskaart van deze computer</h2><div id="glKaart"></div></div>
     <div class="blok"><h2>Wat DMXDesk hoort</h2><div id="glLuister">${luisterTekst(K.L.s || K.S.status)}</div>
       <h3>BPM</h3>
@@ -58,13 +98,17 @@ function teken(el) {
     </div>
     <div class="blok"><h2>Licht gelijk zetten met de muziek</h2>
       <p class="hint">Loopt het licht vóór op de muziek? Schuif naar rechts. Loopt het achter? Naar links. (milliseconden)</p>
+      ${schuif('beat.vertraging_connect', 'Spotify-speaker', b.vertraging_connect, -300, 1200)}
       ${schuif('beat.vertraging_audio', 'Geluidskaart', b.vertraging_audio, -300, 1200)}
       ${schuif('beat.vertraging_spotify', 'Spotify (Pi)', b.vertraging_spotify, -300, 1200)}
       ${schuif('beat.vertraging_mpd', 'Mp3/MPD (Pi)', b.vertraging_mpd, -300, 1200)}
     </div>
   </div>`;
+  spotify();
   kaart();
 }
+
+const stuurSpotify = afremmen(v => doe('/api/spotify', { voorsprong: v }), 400);
 
 export default {
   id: 'geluid', titel: 'Geluid',
@@ -72,8 +116,11 @@ export default {
   teken(el) {
     teken(el);
     if (apparaten === null) laadApparaten();
+    if (uitvoer === null) laadUitvoer();
     el.onclick = async e => {
       const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.spotify) return doe('/api/spotify', { aan: b.dataset.spotify === 'aan' });
+      if (b.id === 'glSpVernieuw') { uitvoer = null; spotify(); return laadUitvoer(); }
       if (b.dataset.audio) {
         await doe('/api/audio', { aan: b.dataset.audio === 'aan', apparaat: $('#glApparaat') ? $('#glApparaat').value : K.S.audio.apparaat });
         return;
@@ -84,10 +131,13 @@ export default {
     el.oninput = e => {
       const i = e.target;
       if (i.type === 'range' && i.dataset.set) { i.nextElementSibling.textContent = i.value; stuurSchuif(i.dataset.set, Number(i.value)); }
+      else if (i.id === 'glSpVoor') { i.nextElementSibling.textContent = i.value + ' s'; stuurSpotify(Number(i.value)); }
     };
     el.onchange = e => {
       const i = e.target;
       if (i.id === 'glApparaat') doe('/api/audio', { aan: K.S.audio.aan, apparaat: i.value || null });
+      else if (i.id === 'glSpNaam') doe('/api/spotify', { naam: i.value });
+      else if (i.id === 'glSpUit') doe('/api/spotify', { apparaat: i.value || null });
       else if (i.type === 'number' && i.dataset.set) zetShow(i.dataset.set, Number(i.value));
     };
   },
@@ -96,6 +146,8 @@ export default {
     const n = $('#glNiveau'), a = L.s.luister && L.s.luister.audio;
     if (n) n.style.width = a ? Math.min(100, Math.round(Math.sqrt(a.niveau / 0.25) * 100)) + '%' : '0%';
     const li = $('#glLuister'); if (li) li.innerHTML = luisterTekst(L.s);
+    const sp = $('#glSpStatus');
+    if (sp && L.s.spotify) sp.innerHTML = spotifyStatus(L.s.spotify, K.S.spotify);
     const st = $('#glStatus'), au = L.s.audio;
     if (st && au) st.innerHTML = au.fout ? `<span class="fout">${esc(au.fout)}</span>` : au.aan ? `Luistert naar ${esc(au.apparaat || 'de standaard-invoer')}` : 'Uit';
   },

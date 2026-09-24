@@ -48,6 +48,19 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libportaudio2 libasound2-dev
       - name: Python-pakketten
         run: pip install -r packaging/requirements-app.txt pyinstaller pillow
+      # Spotify-speaker: librespot (Spotify Connect) wordt in de app meegeleverd
+      - name: librespot uit de cache
+        id: librespot
+        uses: actions/cache@v4
+        with:
+          path: .librespot
+          key: librespot-0.8.0-libmdns-rustls-${{ matrix.naam }}-v1
+      - name: librespot bouwen
+        if: steps.librespot.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          cargo install librespot --version 0.8.0 --locked --no-default-features \
+            --features "with-libmdns rustls-tls-webpki-roots" --root .librespot
       - name: App bouwen
         run: python packaging/bouw.py ${{ matrix.naam }}
       - name: App opstarten (moet lukken)

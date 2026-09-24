@@ -19,6 +19,7 @@ Begonnen als lichtsturing van de carnavalswagen van CV de Zeutekauwn; nu voor ie
 | **Patch** | Lampen toevoegen uit de bibliotheek, universes en adressen, overlap-controle, DIP-schakelaar-hulp |
 | **Bibliotheek** | 660 lampen: generieke profielen + de complete [Open Fixture Library](https://open-fixture-library.org) (644 lampen van 134 merken, werkt offline). Zelf inlezen: QLC+ (`.qxf`) en OFL (`.json`) |
 | **Uitgangen** | USB-DMX (FTDI / Enttec Open DMX), Enttec DMX USB Pro, Art-Net, sACN (E1.31). Meerdere universes |
+| **Spotify-speaker** | DMXDesk verschijnt in Spotify als speaker (zoals Sonos). De muziek wordt eerst geanalyseerd en 4 s later afgespeeld, zodat het licht vooruit weet waar de beats en drops vallen en naar een drop kan opbouwen |
 | **Geluid** | Luistert mee via microfoon, line-in of het geluid van de computer zelf: BPM, beat, melodie (kleuren per toon), energie en drops. Op de Pi via Spotify/MPD |
 | **Monitor** | Alle 512 kanalen per universe, live |
 | **Bediening** | Telefoonpagina met grote knoppen, pincode, MIDI-controllers (leren), sneltoetsen, QR-code om je telefoon te koppelen |
@@ -30,12 +31,14 @@ De apps worden automatisch gebouwd door GitHub (zie *Nieuwe versie uitbrengen*).
 
 - **Windows:** `DMXDesk-…-windows-installer.exe` (installeren, met snelkoppeling) of de `.zip` (uitpakken, `DMXDesk.exe` starten).
   Windows zegt de eerste keer misschien *"Windows heeft uw pc beschermd"*: klik **Meer info → Toch uitvoeren**
-  (de app is niet betaald-ondertekend). Sta netwerktoegang toe als Windows daarom vraagt.
+  (de app is niet betaald-ondertekend). Sta netwerktoegang toe als Windows daarom vraagt (voor DMXDesk én voor
+  **librespot**, dat is de Spotify-speaker; kies *Privénetwerken*).
 - **macOS:** `DMXDesk-…-macos-apple-silicon.dmg` (M1/M2/M3/M4) of `…-macos-intel.dmg`. Sleep DMXDesk naar Programma's.
   De eerste keer: **rechtsklik → Open**, of *Systeeminstellingen → Privacy en beveiliging → Toch openen*.
-  Sta de microfoon toe als je DMXDesk naar de muziek wilt laten luisteren.
+  Sta de microfoon toe als je DMXDesk naar de muziek wilt laten luisteren, en *apparaten in het lokale netwerk*
+  (nodig voor de Spotify-speaker, Art-Net/sACN en je telefoon).
 - **Linux:** `DMXDesk-…-linux-x64.tar.gz` uitpakken en `DMXDesk/DMXDesk` starten (opent in je browser).
-  Voor de geluidskaart: `sudo apt install libportaudio2`.
+  Voor de geluidskaart en de Spotify-speaker: `sudo apt install libportaudio2`.
 - **Zelf vanuit de broncode** (elk systeem met Python 3.9+):
   ```
   pip install ".[app]"
@@ -97,6 +100,30 @@ Spatie = tap · B = blackout · F = freeze · A = auto-show · S / R / W (vastho
 *Instellingen → MIDI-controller*: kies je controller, kies een actie (scène, fader, strobe vasthouden, …), klik
 **Leren** en druk op de knop of beweeg de fader. Werkt met o.a. APC mini, Launchpad, nanoKONTROL.
 
+## Spotify-speaker
+
+De app is meteen een Spotify-speaker, net als een Sonos of de Pi met raspotify:
+
+1. Start DMXDesk (computer en telefoon op hetzelfde wifi-netwerk).
+2. Open Spotify, tik op het speaker-icoon (*Apparaten*) en kies **DMXDesk**.
+3. De muziek komt uit de luidsprekers van de computer, en het licht loopt op de beat.
+
+DMXDesk hoort elk stukje muziek eerst en speelt het pas **4 seconden later** af. Zo weet de lichtshow vooraf
+waar de beats, de melodie en de drops vallen: geen achterlopend licht, en met *Effecten → Opbouw naar de drop*
+gaan de lampen de laatste seconden voor een drop steeds sneller knipperen en naar wit, precies tot de klap.
+Gevolg van die voorsprong: pauze, volgend nummer en volume hoor je ook pas na 4 seconden.
+
+In *Geluid → Spotify-speaker* stel je in: aan/uit, de naam in Spotify, via welke luidspreker/geluidskaart hij
+speelt, en de voorsprong (0–10 s). Loopt het licht nog net voor of achter? Gebruik de schuif *Spotify-speaker*
+bij *Licht gelijk zetten met de muziek*.
+
+- Spotify **Premium** is nodig; dat geldt voor elke Spotify-speaker.
+- Verschijnt hij niet in Spotify? Kijk of Windows/macOS de netwerktoegang heeft toegestaan (zie *Downloaden en
+  installeren*) en of computer en telefoon op hetzelfde netwerk zitten (gastnetwerken blokkeren dit vaak).
+- De speaker gebruikt [librespot](https://github.com/librespot-org/librespot) (MIT-licentie), dat in de app zit.
+  Vanuit de broncode: installeer librespot zelf (`cargo install librespot`) of wijs het aan met `DMXDESK_LIBRESPOT=pad`.
+- Op de Pi (`--server`) staat hij standaard uit: daar doet raspotify dit (zie hieronder).
+
 ## Raspberry Pi (carnavalswagen CV de Zeutekauwn)
 
 Raspberry Pi 3B (Debian 13 "trixie", gebruiker `casper`, IP thuis `192.168.68.126`) die op de wagen
@@ -110,7 +137,7 @@ muziek afspeelt en de lichtshow stuurt.
 | Mp3-webinterface | myMPD | `http://<pi>:8081`, dienst `mympd` |
 | Spotify | Raspotify, speakernaam **CV de Zeutekauwn** | dienst `raspotify` |
 | Lichtsturing | DMXDesk (`/home/casper/dmxdesk/`) | telefoon: `http://<pi>:8080`, paneel: `http://<pi>:8080/desk`, dienst `zeutekauwn-dmx` |
-| Beat-analyse Spotify | `beatluister.py spotify` (zit in de raspotify-dienst) | – |
+| Beat-analyse Spotify | `beatluister.py spotify --voorsprong 4` (zit in de raspotify-dienst) | – |
 | Beat-analyse mp3 | `beatluister.py mpd` | dienst `zeutekauwn-beat-mpd` |
 
 ### Van DMXDesk 1 naar 2 (bijwerken)
@@ -131,7 +158,25 @@ Later bijwerken: `cd /home/casper/dmxdesk && git pull && sh pi/installeren.sh`.
 ### Hoe het geluid loopt
 
 - **Mp3:** MPD → koptelefoonuitgang (`hw:1,0`) + een aftakking `/var/lib/mpd/beat.fifo` → beatluister → DMXDesk
-- **Spotify:** librespot (pipe) → beatluister → `aplay` → koptelefoonuitgang, en beats → DMXDesk
+- **Spotify:** librespot (pipe) → beatluister (analyseert meteen) → 4 s later `aplay` → koptelefoonuitgang, en de
+  beats, noten, energie en drops → DMXDesk, met het moment waarop ze te horen zijn. Het licht weet dus 4 s vooruit
+  wat er komt. `sh pi/installeren.sh` zet dit klaar (`/etc/systemd/system/raspotify.service.d/beat.conf`).
+  Terug naar geen voorsprong: haal `--voorsprong 4` weg uit dat bestand en `sudo systemctl daemon-reload && sudo systemctl restart raspotify`.
+- **Mp3 met voorsprong (optioneel):** vervang in `/etc/mpd.conf` het blok `audio_output` "Headphones" én het
+  blok "Beat-analyse" door
+
+  ```
+  audio_output {
+      type        "pipe"
+      name        "Headphones (met voorsprong)"
+      command     "/usr/bin/python3 -u /usr/local/lib/zeutekauwn/beatluister.py pijp mpd --voorsprong 4"
+      format      "44100:16:2"
+      mixer_type  "software"
+  }
+  ```
+
+  en zet de dienst `zeutekauwn-beat-mpd` uit (`sudo systemctl disable --now zeutekauwn-beat-mpd`). Zet daarna de
+  schuif *Mp3/MPD (Pi)* op ongeveer 200 ms, net als Spotify.
 - Spotify en MPD spelen om de beurt. Start Spotify, dan stopt MPD vanzelf (`spotify-event.sh`).
   Terug naar mp3: Spotify op pauze, dan play in myMPD.
 - Beats gaan via UDP `127.0.0.1:8091` naar DMXDesk.
@@ -143,7 +188,7 @@ Later bijwerken: `cd /home/casper/dmxdesk && git pull && sh pi/installeren.sh`.
 - **Melodie**: de sterkste toon tussen 220 en 2000 Hz. Elke toon heeft een eigen kleur (kleurmodus "♪ Melodie").
 - **Energie**: rustig ↔ extreem, uit luidheid (t.o.v. de laatste 30 s), drukte en helderheid.
   "Show volgt energie" maakt bewegingen en wissels trager en kleiner, of juist sneller en groter.
-- **Drops**: na een rustig stuk barst het los → korte witte flits.
+- **Drops**: na een rustig stuk barst het los → korte witte flits. Met voorsprong: eerst een opbouw ernaartoe.
 - IJkwaarden staan bovenaan `dmxdesk/beatluister.py` (IJK_DRUKTE, IJK_HOOG), afgestemd op de 9 nummers van sept 2026.
 
 ### Alles terugzetten op een nieuwe SD-kaart
@@ -196,12 +241,13 @@ dmxdesk/
   bibliotheek.py  Open Fixture Library en QLC+ (.qxf) inlezen
   uitvoer.py      USB-DMX, Enttec Pro, Art-Net, sACN
   audio.py        geluidskaart → beatluister.Analyse
+  spotify.py      Spotify-speaker: librespot → beatluister.Doorgever (analyseren, later afspelen)
   beatluister.py  beat, BPM, melodie, energie, drops (ook los te gebruiken op de Pi)
   midi.py         MIDI-controllers
   server.py       webserver + JSON-API + live-stream (Server-Sent Events)
   web/            bedieningspaneel (index.html + js/) en telefoonpagina
   data/ofl.json.gz  de ingepakte Open Fixture Library
-packaging/        PyInstaller-recept, icoon, Windows-installer
+packaging/        PyInstaller-recept, icoon, Windows-installer (librespot wordt in de workflow gebouwd, map .librespot/)
 pi/               instellingen en diensten voor de Raspberry Pi
 tests/            python -m pytest
 tools/ofl_bijwerken.py   Open Fixture Library opnieuw ophalen
@@ -214,5 +260,5 @@ App zelf bouwen: `pip install -r packaging/requirements-app.txt pyinstaller pill
 ## Nog te doen
 
 - Testen met de USB-DMX-dongle en de echte lampen.
-- De schuiven "Licht gelijk zetten met de muziek" kalibreren (Spotify, mp3 en geluidskaart).
+- De schuiven "Licht gelijk zetten met de muziek" kalibreren (Spotify-speaker, Spotify op de Pi, mp3 en geluidskaart).
 - Echte profielen kiezen zodra bekend is welke pars, moving heads en rookmachine het worden (nu kan dat uit de bibliotheek).

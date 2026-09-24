@@ -84,14 +84,17 @@ STANDAARD_SHOW = {
     "beweging": {"modus": "cirkel", "snelheid": 8, "grootte": 50, "spreiding": 50, "pan": 50, "tilt": 50},
     "looks": {"modus": "wissel", "elke": 16, "keuze": {}},
     "auto": {"aan": False, "elke": 32},
-    "beat": {"auto": True, "vertraging_spotify": 200, "vertraging_mpd": 400, "vertraging_audio": 0,
+    "beat": {"auto": True, "vertraging_spotify": 200, "vertraging_mpd": 400, "vertraging_audio": 0, "vertraging_connect": 40,
              "bpm_min": 75, "bpm_max": 220, "snel_herkennen": True},
-    "energie": {"aan": False, "flits_bij_drop": True},
+    "energie": {"aan": False, "flits_bij_drop": True, "opbouw_voor_drop": True},
     "groepen": {},
     "attributen": {},      # functie (patroon, rotatie, …) -> {"modus", "elke", "keuzes"}
 }
 EFFECT_SLEUTELS = ("kleur", "intensiteit", "beweging", "looks", "attributen")
 OUDE_PROFIELNAMEN = {"Laser 20 kanalen": "laser_20"}   # naam in shows van vóór versie 3
+OPBOUW_MAX = 3.5        # seconden: zo lang bouwt de show op naar een drop die al aankomt
+# Spotify-speaker (desktop-app): aan = None betekent "nog niet gekozen" (de app zet hem bij de eerste start aan)
+STANDAARD_SPOTIFY = {"aan": None, "naam": "DMXDesk", "apparaat": None, "voorsprong": 4.0, "zeroconf_poort": 0}
 
 
 def samenvoegen(doel, bron):
@@ -115,6 +118,16 @@ def _getal(v, standaard, laag, hoog, soort=float):
         return soort(clamp(soort(v), laag, hoog))
     except (TypeError, ValueError):
         return standaard
+
+
+def schone_spotify(cfg):
+    cfg = cfg if isinstance(cfg, dict) else {}
+    naam = " ".join(str(cfg.get("naam") or "").split())[:40] or "DMXDesk"
+    return {"aan": None if cfg.get("aan") is None else bool(cfg.get("aan")),
+            "naam": naam,
+            "apparaat": str(cfg["apparaat"])[:200] if cfg.get("apparaat") else None,
+            "voorsprong": round(_getal(cfg.get("voorsprong"), 4.0, 0.0, 10.0), 1),
+            "zeroconf_poort": _getal(cfg.get("zeroconf_poort"), 0, 0, 65535, int)}
 
 
 def pin_hash(pin, zout):
@@ -187,6 +200,8 @@ class Engine:
         self.melodie_nu, self.sinds_noot = [], None
         self.energie, self.energie_gezien = 0.5, 0.0
         self.energie_attr = None
+        self.energie_rij = deque(maxlen=400)   # (hoorbaar op, energie, bron): met voorsprong komen ze vooruit binnen
+        self.opbouw_van, self.opbouw = None, None
         self.e_stap = 1.0                # snelheidsfactor door energie (0,5 / 1 / 2)
         self.drop_van, self.drop_tot = 0.0, 0.0
         self.vorige_beat, self.bew_fase = None, 0.0
@@ -212,6 +227,7 @@ class Engine:
             "faders": [{"id": 1, "naam": "Rook (continu)", "functie": "smoke", "fixtures": [], "waarde": 0}],
             "uitgangen": [{"id": 1, "naam": "USB-DMX", "soort": "usb", "universe": 1, "poort": "auto", "aan": True}],
             "audio": {"aan": False, "apparaat": None},
+            "spotify": copy.deepcopy(STANDAARD_SPOTIFY),
             "midi": {"apparaat": "", "koppelingen": {}},
             "instellingen": {"pin_hash": "", "pin_zout": secrets.token_hex(8)},
         }
@@ -221,8 +237,8 @@ class Engine:
         data = basis if basis is not None else self.standaard()
         if int(geladen.get("versie", 1)) < 2:
             geladen = self.migreer_v1(geladen)
-        for k in ("naam", "fixtures", "profielen", "scenes", "cuelijsten", "faders", "uitgangen", "audio", "midi",
-                  "instellingen"):
+        for k in ("naam", "fixtures", "profielen", "scenes", "cuelijsten", "faders", "uitgangen", "audio", "spotify",
+                  "midi", "instellingen"):
             if k in geladen:
                 data[k] = copy.deepcopy(geladen[k])
         samenvoegen(data["show"], geladen.get("show", {}))
@@ -232,6 +248,7 @@ class Engine:
         data["cuelijsten"] = self.schone_cuelijsten(data["cuelijsten"])
         data["faders"] = self.schone_faders(data["faders"])
         data["uitgangen"] = self.schone_uitgangen(data["uitgangen"])
+        data["spotify"] = schone_spotify(data["spotify"])
         if int(geladen.get("versie", 1)) < 3:
             self.profielen_bijwerken(data["profielen"])
         data["instellingen"].setdefault("pin_hash", "")
@@ -332,7 +349,7 @@ class Engine:
         if not isinstance(geladen, dict) or not ("fixtures" in geladen or "show" in geladen):
             raise ValueError("Dit is geen DMXDesk-show")
         with self.lock:
-            bewaar = {k: copy.deepcopy(self.data[k]) for k in ("audio", "midi", "instellingen", "uitgangen")}
+            bewaar = {k: copy.deepcopy(self.data[k]) for k in ("audio", "spotify", "midi", "instellingen", "uitgangen")}
             nieuw = self.normaliseer(geladen)
             for k, v in bewaar.items():
                 if k != "uitgangen" or not uitgangen_ook:
@@ -514,14 +531,16 @@ class Engine:
             vertraging = float(cfg.get("vertraging_" + bron, 0 if bron == "audio" else 200)) / 1000.0
             soort = m.get("soort")
             if soort == "energie":
-                self.energie, self.energie_gezien = float(m.get("e", 0.5)), nu
-                info.update(energie=self.energie, laatste_energie=nu)
+                # pas laten gelden als je het hoort (met voorsprong komt het bericht seconden eerder binnen)
+                self.energie_rij.append((float(m.get("t", nu)) + vertraging, float(m.get("e", 0.5)), bron))
                 return
             if soort == "drop":
-                # na een rustig stuk barst het los: korte witte flits op het moment dat je het hoort
+                # na een rustig stuk barst het los: korte witte flits op het moment dat je het hoort.
+                # Komt het bericht (door de voorsprong) ruim van tevoren binnen, dan eerst een opbouw ernaartoe.
                 self.drop_van = float(m.get("t", nu)) + vertraging
                 self.drop_tot = self.drop_van + 0.4
-                info["laatste_drop"] = nu
+                self.opbouw_van = max(nu, self.drop_van - OPBOUW_MAX) if self.drop_van - nu > 1.0 else None
+                info["laatste_drop"] = self.drop_van
                 return
             if soort == "noot":
                 # melodie: onthouden wanneer deze noot te HOREN is (met de vertraging van de geluidsweg)
@@ -620,6 +639,11 @@ class Engine:
         self.vorige_beat = beat
         self.drop_nu = (e is not None and show["energie"].get("flits_bij_drop", True)
                         and self.drop_van <= nu < self.drop_tot)
+        # opbouw naar een drop die (dankzij de voorsprong) al aankomt: 0 = begin, 1 = de drop
+        self.opbouw = None
+        if (e is not None and show["energie"].get("opbouw_voor_drop", True) and self.opbouw_van is not None
+                and self.opbouw_van <= nu < self.drop_van):
+            self.opbouw = (nu - self.opbouw_van) / max(0.1, self.drop_van - self.opbouw_van)
 
     # ------------------------------------------------------------ patch-overzicht (alleen opnieuw bij wijzigingen)
     def cache(self):
@@ -860,6 +884,10 @@ class Engine:
                 self.sinds_noot = nu - gehoord[-1][0]
             else:
                 self.melodie_nu, self.sinds_noot = [], None
+            while self.energie_rij and self.energie_rij[0][0] <= nu:
+                _, e_nieuw, bron = self.energie_rij.popleft()
+                self.energie, self.energie_gezien = e_nieuw, nu
+                self.luister.setdefault(bron, {"laatste_beat": 0.0}).update(energie=e_nieuw, laatste_energie=nu)
             self.energie_toepassen(show, eb, nu)
             self.energie_attr = self.energie if nu - self.energie_gezien < 5.0 else None
             c = self.cache()
@@ -918,6 +946,17 @@ class Engine:
         prog = self.programmer.get(sleutel)
         if prog:
             stand.toepassen(prog)
+
+        # opbouw naar de drop: steeds sneller pulseren en naar wit, vlak voor de drop even donker
+        if self.opbouw is not None and fx.get("strobe", True):
+            if self.drop_van - nu < 0.25:
+                stand.E = {k: 0.0 for k in stand.E}
+            else:
+                p = self.opbouw
+                puls = 1.0 if (nu * (2.0 + 14.0 * p * p)) % 1.0 < 0.5 else 0.15
+                wit = 0.8 * p
+                stand.E = {k: v * puls for k, v in stand.E.items()}
+                stand.RGB = {k: tuple(c + (255 - c) * wit for c in rgb) for k, rgb in stand.RGB.items()}
 
         # 4. helderheid: master, groep, energie
         groep = clamp(float(show["groepen"].get(fx.get("groep") or "Overig", 100)), 0, 100) / 100.0
@@ -1332,7 +1371,7 @@ class Engine:
                              "hoort_beat": nu - i.get("laatste_beat", 0) < 3.0,
                              "noot": i.get("noot") if nu - i.get("laatste_noot", 0) < 3.0 else None,
                              "energie": round(i["energie"], 2) if nu - i.get("laatste_energie", 0) < 3.0 else None,
-                             "drop": nu - i.get("laatste_drop", 0) < 2.0,
+                             "drop": 0 <= nu - i.get("laatste_drop", 0) < 2.0,
                              "niveau": round(i.get("niveau", 0), 4) if nu - i.get("gezien", 0) < 3.0 else 0,
                              "muziek": i.get("niveau", 0) > 0.005 and nu - i.get("gezien", 0) < 3.0}
                          for b, i in self.luister.items()},

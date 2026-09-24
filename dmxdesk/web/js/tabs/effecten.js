@@ -75,9 +75,12 @@ function teken(el) {
       <div class="knoppen twee">
         <button data-set="energie.aan" data-val="${!s.energie.aan}" class="${s.energie.aan ? 'aan' : ''}">SHOW VOLGT ENERGIE${s.energie.aan ? ' (AAN)' : ''}</button>
         <button data-set="energie.flits_bij_drop" data-val="${!s.energie.flits_bij_drop}" class="${s.energie.flits_bij_drop ? 'aan' : ''}">FLITS BIJ DROP${s.energie.flits_bij_drop ? ' (AAN)' : ''}</button>
+        <button data-set="energie.opbouw_voor_drop" data-val="${!s.energie.opbouw_voor_drop}" class="${s.energie.opbouw_voor_drop ? 'aan' : ''}" style="grid-column:1/-1">OPBOUW NAAR DE DROP${s.energie.opbouw_voor_drop ? ' (AAN)' : ''}</button>
       </div>
       <div class="meter" style="margin-top:10px"><i id="efMeter"></i></div><p class="hint" id="efEnergie">–</p>
-      <p class="hint">Rustig = langzame, kleine bewegingen en wat gedimd. Extreem = snel, groot en vol. Een drop geeft een korte witte flits.</p>
+      <p class="hint">Rustig = langzame, kleine bewegingen en wat gedimd. Extreem = snel, groot en vol. Een drop geeft een korte witte flits.
+        Opbouw naar de drop: als de muziek vooruit gehoord wordt (Spotify-speaker, of de Pi met voorsprong), gaan de lampen
+        de laatste seconden steeds sneller knipperen en kleurt alles naar wit, precies tot de drop (werkt met Show volgt energie aan).</p>
     </div>
 
     <div class="blok">

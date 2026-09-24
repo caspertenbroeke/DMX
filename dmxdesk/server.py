@@ -20,9 +20,10 @@ from urllib.parse import parse_qs, urlparse
 
 from . import NAAM, VERSIE, paden
 from .bibliotheek import importeer_bestand
-from .engine import MODI, UITGANG_SOORTEN
+from .engine import MODI, UITGANG_SOORTEN, schone_spotify
 from .profielen import FUNCTIES, SOORTEN
 from . import audio as audio_mod
+from . import spotify as spotify_mod
 from . import midi as midi_mod
 from . import uitvoer as uitvoer_mod
 
@@ -80,8 +81,10 @@ def qr_svg(tekst):
 class App:
     """Alle onderdelen bij elkaar, zodat de webserver erbij kan."""
 
-    def __init__(self, engine, bibliotheek, uitvoer=None, audio=None, midi=None, poort=8080, afsluiten=None):
+    def __init__(self, engine, bibliotheek, uitvoer=None, audio=None, midi=None, poort=8080, afsluiten=None,
+                 spotify=None):
         self.engine, self.bibliotheek, self.uitvoer, self.audio, self.midi = engine, bibliotheek, uitvoer, audio, midi
+        self.spotify = spotify
         self.poort = poort
         self.afsluiten = afsluiten
         self.sessies = set()
@@ -180,7 +183,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.stuur(200, e.status_info())
         if pad == "/api/state":
             # ?deel=licht: zonder lampen en profielen (die zijn groot en veranderen zelden)
-            sleutels = ["naam", "show", "scenes", "cuelijsten", "faders", "uitgangen", "audio", "midi"]
+            sleutels = ["naam", "show", "scenes", "cuelijsten", "faders", "uitgangen", "audio", "spotify", "midi"]
             if (q.get("deel") or [""])[0] != "licht":
                 sleutels += ["fixtures", "profielen"]
             with e.lock:
@@ -204,6 +207,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.stuur(200, uitvoer_mod.poorten())
         if pad == "/api/audio/apparaten":
             return self.stuur(200, {"beschikbaar": audio_mod.sd is not None, "apparaten": audio_mod.apparaten()})
+        if pad == "/api/spotify/uitvoer":
+            return self.stuur(200, {"beschikbaar": spotify_mod.sd is not None, "apparaten": spotify_mod.uitvoer_apparaten()})
         if pad == "/api/midi/apparaten":
             return self.stuur(200, {"beschikbaar": midi_mod.mido is not None,
                                     "apparaten": midi_mod.Midi.apparaten()})
@@ -345,6 +350,14 @@ class Handler(BaseHTTPRequestHandler):
                 e.gewijzigd()
             if a.audio:
                 a.audio.bijwerken()
+        elif pad == "/api/spotify":
+            with e.lock:
+                cfg = dict(e.data["spotify"])
+                cfg.update({k: body[k] for k in ("aan", "naam", "apparaat", "voorsprong", "zeroconf_poort") if k in body})
+                e.data["spotify"] = schone_spotify(cfg)
+                e.gewijzigd()
+            if a.spotify:
+                a.spotify.bijwerken()
         elif pad == "/api/midi":
             with e.lock:
                 if "apparaat" in body:

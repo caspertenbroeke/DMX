@@ -26,9 +26,29 @@ def programma():
     return os.path.join(ROOT, "dist", "DMXDesk", "DMXDesk")
 
 
-def vraag(url):
-    with urllib.request.urlopen(url, timeout=3) as r:
+def vraag(url, body=None):
+    verzoek = urllib.request.Request(url, data=None if body is None else json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(verzoek, timeout=3) as r:
         return r.status, r.read()
+
+
+def spotify_speaker(poort):
+    """De ingebouwde Spotify-speaker aanzetten en kijken of hij zich meldt zoals Spotify dat vraagt (getInfo)."""
+    zc = 5859
+    vraag(f"http://127.0.0.1:{poort}/api/spotify", {"aan": True, "naam": "DMXDesk Rooktest", "zeroconf_poort": zc})
+    eind, info = time.time() + 30, None
+    while time.time() < eind:
+        try:
+            info = json.loads(vraag(f"http://127.0.0.1:{zc}/?action=getInfo")[1])
+            break
+        except Exception:
+            time.sleep(1)
+    st = json.loads(vraag(f"http://127.0.0.1:{poort}/api/status")[1]).get("spotify")
+    assert info is not None, f"Spotify-speaker antwoordt niet: {st}"
+    assert info.get("remoteName") == "DMXDesk Rooktest", info
+    print("Spotify-speaker OK:", info.get("remoteName"), "-", info.get("libraryVersion") or info.get("version"),
+          "- status:", st)
 
 
 def wacht_op(poort, proc, seconden=90):
@@ -60,6 +80,7 @@ def zonder_venster():
             state = json.loads(vraag(f"http://127.0.0.1:{poort}/api/state")[1])
             print("Rooktest OK:", state["versie"], "-", len(state["fixtures"]), "lampen,",
                   state["bibliotheek"]["aantal"], "in de bibliotheek, qr:", state["systeem"]["qr"])
+            spotify_speaker(poort)
     finally:
         proc.terminate()
         try:
