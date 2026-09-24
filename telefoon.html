@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<title>Zeutekauwn</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #fff; font-family: system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; }
+  body { display: flex; flex-direction: column; gap: 12px; padding: 12px; box-sizing: border-box; height: 100dvh; }
+  .knop { flex: 1; border: 3px solid; border-radius: 20px; display: flex; align-items: center; justify-content: center;
+    text-align: center; font-size: clamp(28px, 9vw, 60px); font-weight: 900; letter-spacing: 2px; touch-action: none;
+    transition: transform .05s; }
+  #smoke  { border-color: #5ac8fa; color: #5ac8fa; background: #06202b; }
+  #strobe { border-color: #fff;    color: #fff;    background: #1a1a1a; }
+  #beide  { border-color: #ffcc00; color: #ffcc00; background: #2a2200; }
+  .knop.aan { transform: scale(.97); color: #000; }
+  #smoke.aan { background: #5ac8fa; } #strobe.aan { background: #fff; } #beide.aan { background: #ffcc00; }
+  .voet { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #888; }
+  .voet a { color: #aaa; padding: 6px 0; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #d33; margin-right: 6px; }
+  .dot.ok { background: #3c3; }
+</style>
+</head>
+<body>
+  <div class="knop" id="smoke" data-smoke="1">SMOKE</div>
+  <div class="knop" id="strobe" data-strobe="1">STROBE</div>
+  <div class="knop" id="beide" data-smoke="1" data-strobe="1">SMOKE<br>+ STROBE</div>
+  <div class="voet">
+    <span><span class="dot" id="dot"></span><span id="tekst">verbinden…</span></span>
+    <a href="/instellingen">instellingen</a>
+  </div>
+<script>
+  // Knoppen werken alleen zolang ze ingedrukt zijn. De Pi laat na 0,7 s zonder bericht vanzelf los.
+  const ingedrukt = new Map();   // vinger (pointerId) -> knop
+  let herhaal = null;
+
+  function stuur() {
+    let smoke = false, strobe = false;
+    for (const k of ingedrukt.values()) {
+      if (k.dataset.smoke) smoke = true;
+      if (k.dataset.strobe) strobe = true;
+    }
+    const actief = new Set(ingedrukt.values());
+    document.querySelectorAll('.knop').forEach(k => k.classList.toggle('aan', actief.has(k)));
+    fetch('/api/hold', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ smoke, strobe }), keepalive: true }).catch(() => {});
+    return smoke || strobe;
+  }
+
+  function houdVast() {
+    if (herhaal) return;
+    herhaal = setInterval(() => { if (!stuur()) { clearInterval(herhaal); herhaal = null; } }, 250);
+  }
+
+  document.querySelectorAll('.knop').forEach(k => {
+    k.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      k.setPointerCapture(e.pointerId);
+      ingedrukt.set(e.pointerId, k);
+      stuur(); houdVast();
+      if (navigator.vibrate) navigator.vibrate(15);
+    });
+    const los = e => { if (ingedrukt.delete(e.pointerId)) stuur(); };
+    k.addEventListener('pointerup', los);
+    k.addEventListener('pointercancel', los);
+    k.addEventListener('lostpointercapture', los);
+  });
+  document.addEventListener('contextmenu', e => e.preventDefault());
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { ingedrukt.clear(); stuur(); } });
+
+  const dot = document.getElementById('dot'), tekst = document.getElementById('tekst');
+  async function status() {
+    try {
+      const s = await (await fetch('/api/status')).json();
+      dot.classList.toggle('ok', s.dongle);
+      tekst.textContent = s.dongle ? 'DMX verbonden' : 'geen DMX-dongle';
+    } catch (e) {
+      dot.classList.remove('ok');
+      tekst.textContent = 'geen verbinding met de Pi';
+    }
+  }
+  status(); setInterval(status, 3000);
+</script>
+</body>
+</html>

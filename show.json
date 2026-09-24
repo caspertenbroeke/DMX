@@ -1,0 +1,579 @@
+{
+  "versie": 1,
+  "dmx_poort": "auto",
+  "show": {
+    "bpm": 139.5,
+    "master": 100,
+    "blackout": false,
+    "strobe_hz": 12,
+    "kleur": {
+      "modus": "random",
+      "palet": [
+        "#ff0000",
+        "#0000ff"
+      ],
+      "snelheid": 1,
+      "spreiding": 50
+    },
+    "intensiteit": {
+      "modus": "aan",
+      "snelheid": 1
+    },
+    "beweging": {
+      "modus": "cirkel",
+      "snelheid": 8,
+      "grootte": 50,
+      "spreiding": 50,
+      "pan": 50,
+      "tilt": 50
+    },
+    "looks": {
+      "modus": "wissel",
+      "elke": 16,
+      "keuze": {}
+    },
+    "auto": {
+      "aan": false,
+      "elke": 32
+    },
+    "groepen": {
+      "Pars": 100,
+      "Moving heads": 100,
+      "Laser": 100
+    }
+  },
+  "fixtures": [
+    {
+      "id": 1,
+      "naam": "Par 1",
+      "profiel": "par_oud",
+      "adres": 1,
+      "groep": "Pars",
+      "x": 20,
+      "strobe": true,
+      "effecten": {
+        "kleur": true,
+        "intensiteit": true,
+        "beweging": true
+      },
+      "pan_min": 0,
+      "pan_max": 255,
+      "tilt_min": 0,
+      "tilt_max": 255,
+      "pan_omkeren": false
+    },
+    {
+      "id": 2,
+      "naam": "Par 2",
+      "profiel": "par_oud",
+      "adres": 8,
+      "groep": "Pars",
+      "x": 40,
+      "strobe": true,
+      "effecten": {
+        "kleur": true,
+        "intensiteit": true,
+        "beweging": true
+      },
+      "pan_min": 0,
+      "pan_max": 255,
+      "tilt_min": 0,
+      "tilt_max": 255,
+      "pan_omkeren": false
+    },
+    {
+      "id": 3,
+      "naam": "Par 3",
+      "profiel": "par_oud",
+      "adres": 15,
+      "groep": "Pars",
+      "x": 60,
+      "strobe": true,
+      "effecten": {
+        "kleur": true,
+        "intensiteit": true,
+        "beweging": true
+      },
+      "pan_min": 0,
+      "pan_max": 255,
+      "tilt_min": 0,
+      "tilt_max": 255,
+      "pan_omkeren": false
+    },
+    {
+      "id": 4,
+      "naam": "Par 4",
+      "profiel": "par_oud",
+      "adres": 22,
+      "groep": "Pars",
+      "x": 80,
+      "strobe": true,
+      "effecten": {
+        "kleur": true,
+        "intensiteit": true,
+        "beweging": true
+      },
+      "pan_min": 0,
+      "pan_max": 255,
+      "tilt_min": 0,
+      "tilt_max": 255,
+      "pan_omkeren": false
+    },
+    {
+      "id": 5,
+      "naam": "Moving head 1",
+      "profiel": "mh_11",
+      "adres": 30,
+      "groep": "Moving heads",
+      "x": 30,
+      "strobe": true,
+      "effecten": {
+        "kleur": true,
+        "intensiteit": true,
+        "beweging": true
+      },
+      "pan_min": 0,
+      "pan_max": 255,
+      "tilt_min": 0,
+      "tilt_max": 120,
+      "pan_omkeren": false
+    },
+    {
+      "id": 6,
+      "naam": "Moving head 2",
+      "profiel": "mh_11",
+      "adres": 41,
+      "groep": "Moving heads",
+      "x": 70,
+      "strobe": true,
+      "effecten": {
+        "kleur": true,
+        "intensiteit": true,
+        "beweging": true
+      },
+      "pan_min": 0,
+      "pan_max": 255,
+      "tilt_min": 0,
+      "tilt_max": 120,
+      "pan_omkeren": false
+    },
+    {
+      "id": 7,
+      "naam": "Laser",
+      "profiel": "laser_20",
+      "adres": 80,
+      "groep": "Laser",
+      "x": 50,
+      "strobe": true,
+      "effecten": {
+        "kleur": false,
+        "intensiteit": false,
+        "beweging": false
+      },
+      "pan_min": 0,
+      "pan_max": 255,
+      "tilt_min": 0,
+      "tilt_max": 255,
+      "pan_omkeren": false
+    }
+  ],
+  "profielen": {
+    "par_oud": {
+      "naam": "RGB Par 7 kanalen (uit oud script)",
+      "kanalen": [
+        {
+          "naam": "Dimmer",
+          "functie": "dimmer",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Rood",
+          "functie": "red",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Groen",
+          "functie": "green",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Blauw",
+          "functie": "blue",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Kanaal 5",
+          "functie": "fixed",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Kanaal 6",
+          "functie": "fixed",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Kanaal 7",
+          "functie": "fixed",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        }
+      ],
+      "looks": []
+    },
+    "mh_11": {
+      "naam": "Moving head 11 kanalen (uit oud script)",
+      "kanalen": [
+        {
+          "naam": "Pan",
+          "functie": "pan",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Pan fijn",
+          "functie": "pan_fine",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Tilt",
+          "functie": "tilt",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Tilt fijn",
+          "functie": "tilt_fine",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Pan/tilt snelheid",
+          "functie": "fixed",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Dimmer",
+          "functie": "dimmer",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Strobe",
+          "functie": "strobe",
+          "standaard": 0,
+          "strobe": 255,
+          "rook": null
+        },
+        {
+          "naam": "Rood",
+          "functie": "red",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Groen",
+          "functie": "green",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Blauw",
+          "functie": "blue",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Wit",
+          "functie": "white",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        }
+      ],
+      "looks": []
+    },
+    "laser_20": {
+      "naam": "Laser 20 kanalen",
+      "kanalen": [
+        {
+          "naam": "Main switch",
+          "functie": "schakelaar",
+          "standaard": 255,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Rood aan/uit",
+          "functie": "fixed",
+          "standaard": 255,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Groen aan/uit (kleur bij effect)",
+          "functie": "fixed",
+          "standaard": 255,
+          "strobe": 255,
+          "rook": null
+        },
+        {
+          "naam": "Blauw aan/uit",
+          "functie": "fixed",
+          "standaard": 255,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Strobe",
+          "functie": "strobe",
+          "standaard": 0,
+          "strobe": 220,
+          "rook": null
+        },
+        {
+          "naam": "Kleur",
+          "functie": "fixed",
+          "standaard": 45,
+          "strobe": 2,
+          "rook": null
+        },
+        {
+          "naam": "Kleur-loopsnelheid",
+          "functie": "fixed",
+          "standaard": 60,
+          "strobe": 0,
+          "rook": null
+        },
+        {
+          "naam": "Patroon",
+          "functie": "fixed",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Patroongroep",
+          "functie": "fixed",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Grootte",
+          "functie": "fixed",
+          "standaard": 180,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Zoom",
+          "functie": "fixed",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Rotatie",
+          "functie": "fixed",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "X-flip",
+          "functie": "fixed",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Y-flip",
+          "functie": "fixed",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Pan (horizontaal)",
+          "functie": "pan",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Tilt (verticaal)",
+          "functie": "tilt",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Golf",
+          "functie": "fixed",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Geleidelijk tekenen",
+          "functie": "fixed",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        },
+        {
+          "naam": "Ingebouwd effect",
+          "functie": "fixed",
+          "standaard": 0,
+          "strobe": 0,
+          "rook": null
+        },
+        {
+          "naam": "Effectsnelheid",
+          "functie": "fixed",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        }
+      ],
+      "looks": [
+        {
+          "naam": "Lijn-effect",
+          "waarden": {
+            "3": 0,
+            "19": 208,
+            "20": 80
+          }
+        },
+        {
+          "naam": "Animatie-effect",
+          "waarden": {
+            "3": 0,
+            "19": 220,
+            "20": 100
+          }
+        },
+        {
+          "naam": "Landmark-effect",
+          "waarden": {
+            "3": 0,
+            "19": 230,
+            "20": 100
+          }
+        },
+        {
+          "naam": "Random mix",
+          "waarden": {
+            "3": 0,
+            "19": 245,
+            "20": 120
+          }
+        },
+        {
+          "naam": "Patronen 1 draaiend",
+          "waarden": {
+            "9": 0,
+            "12": 150
+          }
+        },
+        {
+          "naam": "Patronen 2 draaiend",
+          "waarden": {
+            "9": 30,
+            "12": 150
+          }
+        },
+        {
+          "naam": "Randpatronen draaiend",
+          "waarden": {
+            "9": 60,
+            "12": 160
+          }
+        },
+        {
+          "naam": "Uitgesneden patronen",
+          "waarden": {
+            "9": 85,
+            "12": 170
+          }
+        },
+        {
+          "naam": "Animaties 1",
+          "waarden": {
+            "9": 130
+          }
+        },
+        {
+          "naam": "Animaties 2",
+          "waarden": {
+            "9": 160
+          }
+        },
+        {
+          "naam": "Golvend patroon",
+          "waarden": {
+            "17": 100
+          }
+        },
+        {
+          "naam": "Zoomend patroon",
+          "waarden": {
+            "11": 30
+          }
+        },
+        {
+          "naam": "Kleurverloop",
+          "waarden": {
+            "6": 250,
+            "7": 60
+          }
+        }
+      ]
+    },
+    "rook_1": {
+      "naam": "Rookmachine 1 kanaal",
+      "kanalen": [
+        {
+          "naam": "Rook",
+          "functie": "smoke",
+          "standaard": 0,
+          "strobe": null,
+          "rook": 255
+        },
+        {
+          "naam": "Kanaal 2",
+          "functie": "fixed",
+          "standaard": 0,
+          "strobe": null,
+          "rook": null
+        }
+      ],
+      "looks": []
+    }
+  },
+  "scenes": {}
+}

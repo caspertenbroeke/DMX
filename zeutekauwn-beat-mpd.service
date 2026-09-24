@@ -1,0 +1,14 @@
+[Unit]
+Description=Zeutekauwn beat-luisteraar voor MPD (mp3's)
+After=mpd.service
+
+[Service]
+User=casper
+Group=casper
+ExecStart=/usr/bin/python3 -u /usr/local/lib/zeutekauwn/beatluister.py mpd /var/lib/mpd/beat.fifo
+Restart=always
+RestartSec=2
+Nice=5
+
+[Install]
+WantedBy=multi-user.target
