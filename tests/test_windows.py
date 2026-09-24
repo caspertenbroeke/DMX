@@ -16,7 +16,7 @@ for m in list(sys.modules):
     if m.split('.')[0] in {ALLEEN_UNIX!r}:
         del sys.modules[m]
 sys.meta_path.insert(0, Blok())
-import dmxdesk.app, dmxdesk.server, dmxdesk.audio, dmxdesk.midi, dmxdesk.uitvoer, dmxdesk.beatluister
+import dmxdesk.app, dmxdesk.server, dmxdesk.audio, dmxdesk.midi, dmxdesk.uitvoer, dmxdesk.beatluister, dmxdesk.spotify
 from dmxdesk.engine import Engine
 Engine(None).render(1000.0)
 print("ok")

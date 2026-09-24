@@ -89,8 +89,9 @@ def open_server(app, poorten):
     raise SystemExit(f"Geen vrije poort gevonden: {fout}")
 
 
-def open_venster(url, titel):
-    """Eigen app-venster met pywebview. Geeft False als dat niet lukt (dan de browser)."""
+def open_venster(url, titel, stoppen=None):
+    """Eigen app-venster met pywebview. Geeft False als dat niet lukt (dan de browser).
+    stoppen: als dat gezet wordt (knop Afsluiten, systeem sluit af) gaat het venster dicht."""
     try:
         import webview
     except Exception as e:
@@ -99,7 +100,16 @@ def open_venster(url, titel):
     try:
         if hasattr(webview, "settings"):
             webview.settings["ALLOW_DOWNLOADS"] = True     # show exporteren
-        webview.create_window(titel, url, width=1440, height=900, min_size=(960, 600), background_color="#0b0b0d")
+        venster = webview.create_window(titel, url, width=1440, height=900, min_size=(960, 600),
+                                        background_color="#0b0b0d")
+        if stoppen is not None:
+            def sluiten():
+                stoppen.wait()
+                try:
+                    venster.destroy()
+                except Exception:
+                    pass
+            threading.Thread(target=sluiten, daemon=True, name="venster-sluiten").start()
         print("App-venster wordt geopend", flush=True)
         webview.start()
         return True
@@ -180,7 +190,7 @@ def main(argv=None):
     try:
         if args.server:
             stoppen.wait()
-        elif not args.browser and open_venster(url, NAAM):
+        elif not args.browser and open_venster(url, NAAM, stoppen):
             pass            # venster is dicht: afsluiten
         else:
             webbrowser.open(url)

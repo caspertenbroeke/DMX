@@ -52,6 +52,71 @@ def _geen_venster():
     return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
+# librespot moet mee stoppen als DMXDesk stopt, ook bij een crash of 'taak beëindigen' (anders blijft er een
+# speaker zonder geluid in Spotify staan). Windows: een 'job' die alles erin afsluit als DMXDesk weg is.
+# Linux: een signaal als de ouder verdwijnt. (macOS: bij de volgende start opgeruimd, zie ruim_oude_op.)
+_JOB = None
+_LIBC = None
+if sys.platform.startswith("linux"):
+    try:
+        import ctypes
+        _LIBC = ctypes.CDLL(None)
+    except (ImportError, OSError):
+        _LIBC = None
+
+
+def _linux_stop_met_ouder():
+    if _LIBC is not None:
+        _LIBC.prctl(1, signal.SIGTERM)      # PR_SET_PDEATHSIG
+
+
+def _start_opties():
+    if sys.platform.startswith("linux") and _LIBC is not None:
+        return {"preexec_fn": _linux_stop_met_ouder}
+    return _geen_venster()
+
+
+def _stopt_mee(proc):
+    global _JOB
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class Basis(ctypes.Structure):
+            _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                        ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                        ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                        ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                        ("SchedulingClass", wintypes.DWORD)]
+
+        class Tellers(ctypes.Structure):
+            _fields_ = [(n, ctypes.c_uint64) for n in ("Read", "Write", "Other", "ReadBytes", "WriteBytes", "OtherBytes")]
+
+        class Uitgebreid(ctypes.Structure):
+            _fields_ = [("Basis", Basis), ("Io", Tellers), ("ProcessMemoryLimit", ctypes.c_size_t),
+                        ("JobMemoryLimit", ctypes.c_size_t), ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                        ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateJobObjectW.restype = wintypes.HANDLE
+        k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        if _JOB is None:
+            job = k32.CreateJobObjectW(None, None)
+            info = Uitgebreid()
+            info.Basis.LimitFlags = 0x2000          # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            if not job or not k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)):
+                raise OSError(ctypes.get_last_error())
+            _JOB = job
+        if not k32.AssignProcessToJobObject(_JOB, int(proc._handle)):
+            raise OSError(ctypes.get_last_error())
+    except Exception as e:
+        print("librespot kon niet aan DMXDesk gekoppeld worden:", e, flush=True)
+
+
 def ruim_oude_op(pidbestand):
     """Is DMXDesk de vorige keer gecrasht, dan draait zijn librespot misschien nog (dubbele speaker): stoppen."""
     try:
@@ -236,11 +301,12 @@ class SpotifySpeaker:
                     return
                 try:
                     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                            stdin=subprocess.DEVNULL, **_geen_venster())
+                                            stdin=subprocess.DEVNULL, **_start_opties())
                 except OSError as e:
                     proc = None
                     self.fout = f"librespot start niet: {e}"
                 if proc is not None:
+                    _stopt_mee(proc)
                     try:
                         with open(pidbestand, "w") as f:
                             f.write(str(proc.pid))
