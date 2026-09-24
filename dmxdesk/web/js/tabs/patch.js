@@ -38,12 +38,7 @@ function teken() {
           <button class="stil icoon" data-meer="${f.id}" title="Meer">${open.has(f.id) ? '▴' : '▾'}</button>
           <button class="stil icoon" data-kopie="${i}" title="Dupliceren">⧉</button><button class="stil icoon" data-weg="${i}" title="Verwijderen">×</button></td>
       </tr>${open.has(f.id) ? `<tr><td colspan="8"><div class="velden" style="padding:6px 0 10px">
-        ${bew ? `<label>Pan min / max<span class="rij" style="margin:0"><input type="number" min="0" max="255" data-i="${i}" data-k="pan_min" value="${f.pan_min}">
-            <input type="number" min="0" max="255" data-i="${i}" data-k="pan_max" value="${f.pan_max}"></span></label>
-          <label>Tilt min / max<span class="rij" style="margin:0"><input type="number" min="0" max="255" data-i="${i}" data-k="tilt_min" value="${f.tilt_min}">
-            <input type="number" min="0" max="255" data-i="${i}" data-k="tilt_max" value="${f.tilt_max}"></span></label>
-          <label class="check"><input type="checkbox" data-i="${i}" data-k="pan_omkeren" ${f.pan_omkeren ? 'checked' : ''}> Pan omkeren</label>
-          <label class="check"><input type="checkbox" data-i="${i}" data-k="tilt_omkeren" ${f.tilt_omkeren ? 'checked' : ''}> Tilt omkeren</label>` : ''}
+        ${bew ? `<label>Pan / tilt<span class="hint" style="margin:0">bereik, midden en omkeren: zie <b>Beweging per lamp</b> hieronder</span></label>` : ''}
         <label>Plek links→rechts / achter→voor<span class="rij" style="margin:0"><input type="number" min="0" max="100" data-i="${i}" data-k="x" value="${f.x}">
           <input type="number" min="0" max="100" data-i="${i}" data-k="y" value="${f.y}"></span></label>
         <label>DIP-schakelaars (1 → 9)<span class="nr" style="font-size:18px;letter-spacing:2px;color:var(--tekst)">${dip(Number(f.adres))}</span></label>
@@ -58,8 +53,46 @@ function teken() {
     <li><b>Kabel:</b> bovenin moet <b>DMX ok</b> groen staan. Zo niet: tabblad Uitgangen. Kies daar "USB-DMX-kabel (herkent zelf het type)".</li>
     <li><b>Laatste lamp in de rij:</b> bij lange kabels helpt een DMX-eindweerstand (terminator) in de laatste lamp.</li>
     <li><b>Kijk in de Monitor</b> welke waarden er echt naar buiten gaan, en in de <b>Programmer</b> kun je elk kanaal met de hand zetten.</li></ol>`;
+  $('#ptBeweging').innerHTML = bewegingBlok();
+  $('#ptBeweging').hidden = !$('#ptBeweging').innerHTML;
   const knop = $('#ptOpslaan'); if (knop) knop.disabled = !vuil();
 }
+
+// ------------------------------------------------------------------ beweging per lamp (live, met testknoppen)
+const BEW_VELDEN = ['pan_min', 'pan_max', 'tilt_min', 'tilt_max', 'pan_midden', 'tilt_midden', 'pan_omkeren', 'tilt_omkeren'];
+function bewegingBlok() {
+  const S = K.S;
+  const lampen = S.fixtures.filter(f => { const p = S.profielen[f.profiel]; return p && p.kanalen.some(k => k.functie === 'pan' || k.functie === 'tilt'); });
+  if (!lampen.length) return '';
+  const as = (f, a, label) => {
+    const lo = f[a + '_min'], hi = f[a + '_max'], eigen = f[a + '_midden'] !== null && f[a + '_midden'] !== undefined;
+    const mid = eigen ? f[a + '_midden'] : Math.round((lo + hi) / 2);
+    const s = (k, v, titel) => `<label>${titel}<span class="rij" style="margin:0"><input type="range" min="0" max="255" value="${v}" data-bw="${f.id}" data-k="${a}_${k}"><span class="waarde nr">${v}</span></span></label>`;
+    return `<div class="as"><b>${label}</b>${s('min', lo, 'Min')}${s('midden', mid, eigen ? 'Midden (rustpositie)' : 'Midden (automatisch)')}${s('max', hi, 'Max')}
+      <div class="rij" style="margin:0"><label class="check"><input type="checkbox" data-bw="${f.id}" data-k="${a}_omkeren" ${f[a + '_omkeren'] ? 'checked' : ''}> Omkeren</label>
+      ${eigen ? `<button class="stil" data-bwauto="${f.id}" data-k="${a}_midden" title="Midden weer precies tussen min en max">↺ midden automatisch</button>` : ''}</div></div>`;
+  };
+  return `<h2>Beweging per lamp</h2>
+    <p class="hint">Voor alles wat beweegt: moving heads, scanners en lasers. <b>Min</b> en <b>max</b> = hoe ver hij mag (bijv. niet het publiek in),
+      <b>midden</b> = zijn rustpositie waar de bewegingen omheen gaan. <b>Omkeren</b> als hij op z'n kop hangt of de andere kant op draait.
+      Werkt meteen; met de testknoppen zie je waar hij heen gaat (daarna <b>Loslaten</b>).</p>
+    <div class="bewegingen">${lampen.map(f => `<div class="kanaalkaart"><div class="kop"><b>${esc(f.naam)}</b><span class="hint">${esc(S.profielen[f.profiel].naam)}</span></div>
+      <div class="velden" style="grid-template-columns:1fr 1fr">${as(f, 'pan', 'Pan (links ↔ rechts)')}${as(f, 'tilt', 'Tilt (omlaag ↕ omhoog)')}</div>
+      <div class="knoppen" style="margin-top:8px">
+        <button data-bwtest="${f.id}" data-pan="0" data-tilt="50">◀ Pan min</button><button data-bwtest="${f.id}" data-pan="50" data-tilt="50">● Midden</button>
+        <button data-bwtest="${f.id}" data-pan="100" data-tilt="50">Pan max ▶</button><button data-bwtest="${f.id}" data-pan="50" data-tilt="0">▼ Tilt min</button>
+        <button data-bwtest="${f.id}" data-pan="50" data-tilt="100">▲ Tilt max</button><button class="stil" data-bwlos="${f.id}">Loslaten</button></div>
+    </div>`).join('')}</div>`;
+}
+
+const stuurBeweging = afremmen(async (fid, waarden) => {
+  try {
+    const nieuw = await api('/api/beweging', { fixture: fid, waarden });
+    for (const lijst of [K.S.fixtures, F || []]) {          // ook in de (nog niet opgeslagen) patch bijwerken
+      const f = lijst.find(x => x.id === fid); if (f) Object.assign(f, nieuw);
+    }
+  } catch (e) { toast(e.message, true); }
+}, 60);
 
 async function opslaan() {
   try { await api('/api/fixtures', F); await laadState(true); F = kloon(K.S.fixtures); teken(); toast('Patch opgeslagen'); }
@@ -185,10 +218,17 @@ export default {
     el.innerHTML = `<div class="paginakop"><h1>Patch</h1><span class="hint">Welke lampen er zijn en op welk DMX-adres ze staan.</span><span class="vul"></span>
         <button id="ptNieuw" class="primair">+ Lamp toevoegen</button><button id="ptHerstel">Wijzigingen ongedaan maken</button>
         <button id="ptOpslaan" class="primair" disabled>Opslaan</button></div>
-      <div class="blok" id="ptTabel"></div><div class="blok" id="ptTips" style="margin-top:14px"></div>`;
+      <div class="blok" id="ptTabel"></div><div class="blok" id="ptBeweging" style="margin-top:14px"></div>
+      <div class="blok" id="ptTips" style="margin-top:14px"></div>`;
     teken();
     el.onclick = async e => {
       const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.bwtest) {
+        const fid = Number(b.dataset.bwtest);
+        return doe('/api/programmer', { fixtures: [fid], waarden: { pan: Number(b.dataset.pan), tilt: Number(b.dataset.tilt), dim: 100 } });
+      }
+      if (b.dataset.bwlos) return doe('/api/programmer', { actie: 'wissen', fixtures: [Number(b.dataset.bwlos)] });
+      if (b.dataset.bwauto) { await stuurBeweging(Number(b.dataset.bwauto), { [b.dataset.k]: null }); return setTimeout(teken, 150); }
       if (b.id === 'ptNieuw') wizard();
       else if (b.id === 'ptOpslaan') opslaan();
       else if (b.id === 'ptHerstel') { F = null; teken(); }
@@ -212,7 +252,15 @@ export default {
       }
     };
     el.oninput = e => {
-      const i = e.target; if (i.dataset.i === undefined) return;
+      const i = e.target;
+      if (i.dataset.bw) {
+        const fid = Number(i.dataset.bw), f = K.S.fixtures.find(x => x.id === fid);
+        const v = i.type === 'checkbox' ? i.checked : Number(i.value);
+        if (i.type === 'range') i.nextElementSibling.textContent = i.value;
+        const w = {}; BEW_VELDEN.forEach(k => { w[k] = f[k]; }); w[i.dataset.k] = v;
+        return stuurBeweging(fid, w);
+      }
+      if (i.dataset.i === undefined) return;
       const f = F[Number(i.dataset.i)], k = i.dataset.k;
       const v = i.type === 'checkbox' ? i.checked : (i.type === 'number' ? Number(i.value) : i.value);
       if (k.startsWith('effecten.')) f.effecten[k.split('.')[1]] = v; else f[k] = v;

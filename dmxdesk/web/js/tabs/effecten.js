@@ -39,6 +39,7 @@ const schuif = (p, label, waarde, min = 0, max = 100) =>
   `<div class="rij"><label>${label}</label><input type="range" min="${min}" max="${max}" value="${waarde}" data-set="${p}"><span class="waarde">${waarde}</span></div>`;
 
 const stuurSchuif = afremmen((p, v) => zet(p, v, false), 80);
+const TREDEN = [['rustig', 'Rustig'], ['opbouw', 'Opbouw'], ['groove', 'Groove'], ['druk', 'Druk'], ['drop', 'Vol gas'], ['extreem', 'Extreem']];
 
 function laagBlok() {
   const namen = lagen();
@@ -62,19 +63,21 @@ function lichtmanBlok(s) {
   return `<div class="blok">
       <h2>Lichtman</h2>
       <div class="lichtman"><b id="lmSectie">–</b><span class="hint" id="lmExtra"></span></div>
+      <div class="treden" id="lmTreden">${TREDEN.map(([k, t]) => `<span data-trede="${k}">${t}</span>`).join('')}</div>
       <div class="rij"><label>Kick</label><div class="meter" style="flex:1"><i id="lmKick"></i></div></div>
       <div class="rij"><label>Energie</label><div class="meter" style="flex:1"><i id="efMeter"></i></div></div>
       <div class="knoppen twee" style="margin-top:8px">
         <button data-set="energie.aan" data-val="${!e.aan}" class="${e.aan ? 'aan' : ''}" style="grid-column:1/-1">LICHTMAN${e.aan ? ' (AAN): SHOW VOLGT HET NUMMER' : ' (UIT)'}</button>
         <button data-set="energie.flits_bij_drop" data-val="${!e.flits_bij_drop}" class="${e.flits_bij_drop ? 'aan' : ''}">FLITS BIJ DROP${e.flits_bij_drop ? ' (AAN)' : ''}</button>
         <button data-set="energie.opbouw_voor_drop" data-val="${!e.opbouw_voor_drop}" class="${e.opbouw_voor_drop ? 'aan' : ''}">OPBOUW NAAR DE DROP${e.opbouw_voor_drop ? ' (AAN)' : ''}</button>
+        <button data-set="energie.strobe" data-val="${!(e.strobe ?? true)}" class="${(e.strobe ?? true) ? 'aan' : ''}" style="grid-column:1/-1">STROBE BIJ HARDE DROPS${(e.strobe ?? true) ? ' (AAN)' : ''}</button>
       </div>
-      ${schuif('energie.contrast', 'Rustig ↔ wild', e.contrast ?? 70)}
-      <p class="hint">De lichtman luistert vooral naar de <b>kick</b>, niet alleen naar het tempo. Rustig nummer of breakdown:
-        gedimd, zachte overgangen, langzaam en een golf over de lampen. Opbouw: steeds sneller op de maat en naar wit, vlak voor de
-        drop even donker. Drop: alles op de beat, een knal op elke kick, snel en groot. Hoe verder vooruit hij hoort
-        (Spotify-speaker: Geluid → Licht vooruit), hoe beter hij de drop ziet aankomen.
-        <b>Rustig ↔ wild</b> bepaalt hoe groot het verschil is.</p>
+      ${schuif('energie.contrast', 'Wildheid', e.contrast ?? 70)}
+      <p class="hint">De lichtman luistert vooral naar de <b>kick</b>, niet alleen naar het tempo. Zonder kick: <b>rustig</b> of
+        <b>break</b> (gedimd, zachte overgangen, een golf over de lampen) of <b>opbouw</b> (steeds sneller op de maat en naar wit,
+        vlak voor de drop even donker). Met kick, in stapjes: <b>groove</b> → <b>druk</b> → <b>vol gas</b> (luidste, volste stukken en
+        na een drop) → <b>extreem</b> (alleen bij harde nummers). Bij de 2e en 3e drop van een hard nummer gaat de strobe
+        een paar tellen aan. <b>Wildheid</b> lager = rustiger licht én pas later vol gas.</p>
     </div>`;
 }
 
@@ -192,9 +195,11 @@ function energie(L) {
   const s = $('#lmSectie'), x = $('#lmExtra');
   if (!K.S.show.energie.aan) { s.textContent = 'Uit'; s.className = ''; x.textContent = 'De show doet precies wat hieronder is ingesteld.'; return; }
   if (!lm) { s.textContent = 'Hoort nu geen muziek'; s.className = ''; x.textContent = ''; return; }
-  s.textContent = lm.flits ? '💥 DROP!' : lm.naam + (lm.sectie === 'opbouw' && lm.opbouw !== null ? ` ${Math.round(lm.opbouw * 100)}%` : '');
+  s.textContent = lm.flits ? '💥 DROP!' : lm.strobe ? '⚡ STROBE' : lm.naam + (lm.sectie === 'opbouw' && lm.opbouw !== null ? ` ${Math.round(lm.opbouw * 100)}%` : '');
   s.className = 'sectie-' + lm.sectie;
   x.textContent = lm.drop_over ? `drop over ${Math.ceil(lm.drop_over)} s` : '';
+  const trede = { break: 'rustig', pauze: 'rustig' }[lm.sectie] || lm.sectie;
+  document.querySelectorAll('#lmTreden [data-trede]').forEach(t => t.classList.toggle('aan', t.dataset.trede === trede));
 }
 
 export default {

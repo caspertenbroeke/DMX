@@ -103,6 +103,10 @@ class GeluidskaartUitgang:
     def volume(self, procent):
         self.gain = versterking(procent)
 
+    def wissel(self, apparaat):
+        """Andere luidspreker: bij het volgende stukje dicht en met het nieuwe apparaat weer open."""
+        self.nieuw_apparaat = apparaat or ""
+
     def start(self):
         nr = _zoek_uitvoer(self.apparaat)
         if nr is None and not any(d.get("max_output_channels", 0) >= 2 for d in sd.query_devices()):
@@ -119,6 +123,10 @@ class GeluidskaartUitgang:
             pass
 
     def schrijf(self, data):
+        if getattr(self, "nieuw_apparaat", None) is not None:
+            self.apparaat, self.nieuw_apparaat = self.nieuw_apparaat or None, None
+            self.stop()
+            raise OSError("andere luidspreker")      # de afspeler opent hem meteen opnieuw
         g, oud = self.gain, self._gain_oud
         if g < 0.999 or oud < 0.999:
             s = np.frombuffer(data, dtype="<i2").reshape(-1, 2).astype(np.float32)
@@ -182,9 +190,12 @@ class SpotifySpeaker:
         return speaker_pad() is not None and sd is not None
 
     def status_bijwerken(self):
+        self.engine.extra_status["spotify"] = self.status
+
+    def status(self):
         cfg = self.engine.data.get("spotify") or {}
         d = self.doorgever
-        self.engine.extra_status["spotify"] = {
+        return {
             "beschikbaar": self.beschikbaar(),
             "aan": self.proc is not None and self.proc.poll() is None,
             "naam": cfg.get("naam"),
@@ -193,6 +204,8 @@ class SpotifySpeaker:
             "nummer": self.speler["naam"],
             "voorsprong": cfg.get("voorsprong"),
             "fout": self.fout or (f"Geen geluid: {d.fout}" if d and d.fout else ""),
+            "vooruit": round(d.vooruit(), 1) if d else 0.0,       # hoeveel het licht nu echt vooruit hoort
+            "vullen": bool(d and d.vul_nodig and not d.actief and d.in_rij > 0),
             "speler": dict(self.speler),
         }
 
@@ -205,6 +218,14 @@ class SpotifySpeaker:
         with self.lock:
             draait = self.proc is not None and self.proc.poll() is None
             if draait and gewenst == self.huidig:
+                return
+            if draait and gewenst and self.huidig and (gewenst[0], gewenst[3]) == (self.huidig[0], self.huidig[3]):
+                # voorsprong of luidspreker anders: meteen toepassen, zonder de muziek en verbinding te onderbreken
+                if self.doorgever and gewenst[2] != self.huidig[2]:
+                    self.doorgever.zet_voorsprong(gewenst[2])
+                if self.uitgang and gewenst[1] != self.huidig[1]:
+                    self.uitgang.wissel(gewenst[1])
+                self.huidig = gewenst
                 return
             self._stop()
             self.huidig = gewenst
@@ -297,14 +318,12 @@ class SpotifySpeaker:
             self._markeer(info=info)
         elif soort == "pauze" and d is not None and not self.pauze:
             self.pauze = True
-            t = d.pauzeer()
-            self.engine.muziek_pauze(t)
+            d.pauzeer()
             sp["pos"], sp["pos_t"], sp["speelt"] = self._positie(), time.time(), False
         elif soort == "speelt":
             if self.pauze and d is not None:
                 self.pauze = False
                 d.hervat()
-                self.engine.muziek_hervat()
             sp["pos"], sp["pos_t"], sp["speelt"] = self._positie(), time.time(), True
         elif soort == "gestopt":
             self._markeer(stop=True)
@@ -319,9 +338,9 @@ class SpotifySpeaker:
         d = self.doorgever
         if d is None:
             return
-        d.leeg()
+        self.engine.muziek_vergeet(time.time())   # wat nog gepland stond (oude nummer) weg
+        d.leeg()                                  # en de rij; daarna eerst weer voorvullen
         d.a.reset()                               # (zelfde draad als de analyse)
-        self.engine.muziek_vergeet(time.time())
         if self.pauze:
             self.pauze = False
             d.hervat()

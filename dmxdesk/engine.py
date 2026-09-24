@@ -57,6 +57,7 @@ def fixture(fid, naam, profiel, adres, groep, x, y=50, universe=1, **extra):
         "strobe": True,
         "effecten": {"kleur": True, "intensiteit": True, "beweging": True},
         "pan_min": 0, "pan_max": 255, "tilt_min": 0, "tilt_max": 255, "pan_omkeren": False, "tilt_omkeren": False,
+        "pan_midden": None, "tilt_midden": None,       # rustpositie (None = precies tussen min en max)
     }
     f.update(extra)
     return f
@@ -89,7 +90,8 @@ STANDAARD_SHOW = {
     "beat": {"auto": True, "vertraging_spotify": 200, "vertraging_mpd": 400, "vertraging_audio": 0, "vertraging_connect": 40,
              "bpm_min": 75, "bpm_max": 220, "snel_herkennen": True},
     # de lichtman (show volgt de muziek): contrast 0 = doet bijna niets, 100 = rustig heel rustig en drops heel wild
-    "energie": {"aan": True, "flits_bij_drop": True, "opbouw_voor_drop": True, "contrast": 70},
+    # strobe: bij de 2e/3e drop van een hard nummer een paar tellen strobe, en in 'Extreem!' af en toe een klap
+    "energie": {"aan": True, "flits_bij_drop": True, "opbouw_voor_drop": True, "contrast": 70, "strobe": True},
     "groepen": {},
     "lagen": {},           # groep -> {"eigen": bool, "kleur", "intensiteit", "beweging"}: eigen patronen per laag
     "attributen": {},      # functie (patroon, rotatie, …) -> {"modus", "elke", "keuzes"}
@@ -107,6 +109,8 @@ AUTO_PER_SECTIE = {
              ["ballyhoo", "vierkant", "spiraal", "acht", "cirkel", "knik"]),
 }
 AUTO_PER_SECTIE["break"] = AUTO_PER_SECTIE["opbouw"] = AUTO_PER_SECTIE["rustig"]
+AUTO_PER_SECTIE["druk"] = AUTO_PER_SECTIE["groove"]
+AUTO_PER_SECTIE["extreem"] = AUTO_PER_SECTIE["drop"]
 # Spotify-speaker (desktop-app): aan = None betekent "nog niet gekozen" (de app zet hem bij de eerste start aan)
 STANDAARD_SPOTIFY = {"aan": None, "naam": "DMXDesk", "apparaat": None, "voorsprong": 8.0, "zeroconf_poort": 0}
 
@@ -153,6 +157,15 @@ def schone_spotify(cfg):
             "apparaat": str(cfg["apparaat"])[:200] if cfg.get("apparaat") else None,
             "voorsprong": round(_getal(cfg.get("voorsprong"), 8.0, 0.0, 20.0), 1),
             "zeroconf_poort": _getal(cfg.get("zeroconf_poort"), 0, 0, 65535, int)}
+
+
+def bereik(v, laag, midden, hoog):
+    """0..1 (0,5 = midden) naar een DMX-waarde: van min via het midden naar max."""
+    if midden is None:
+        return laag + v * (hoog - laag)
+    if v >= 0.5:
+        return midden + (v - 0.5) * 2.0 * (hoog - midden)
+    return midden - (0.5 - v) * 2.0 * (midden - laag)
 
 
 def pin_hash(pin, zout):
@@ -419,6 +432,10 @@ class Engine:
             b["breedte"] = _getal(b["breedte"], 10, 1, 100)
             for k in ("pan_min", "pan_max", "tilt_min", "tilt_max"):
                 b[k] = _getal(b[k], 0 if k.endswith("min") else 255, 0, 255, int)
+            for a in ("pan", "tilt"):
+                m = b.get(a + "_midden")
+                lo, hi = sorted((b[a + "_min"], b[a + "_max"]))
+                b[a + "_midden"] = None if m is None or m == "" else _getal(m, None, lo, hi, int)
             b["effecten"] = {s: bool((b.get("effecten") or {}).get(s, True)) for s in ("kleur", "intensiteit", "beweging")}
             for k in ("strobe", "pan_omkeren", "tilt_omkeren"):
                 b[k] = bool(b[k])
@@ -563,13 +580,19 @@ class Engine:
             cfg = self.data["show"]["beat"]
             vertraging = float(cfg.get("vertraging_" + bron, 0 if bron == "audio" else 200)) / 1000.0
             soort = m.get("soort")
+            if soort == "pauze":            # geluid staat stil (voorvullen, pauze, haperen)
+                self.muziek_pauze(float(m.get("t", nu)))
+                return
+            if soort == "verder":           # en loopt weer: wat gepland stond schuift mee
+                self.muziek_hervat()
+                return
             if soort == "energie":
                 # pas laten gelden als je het hoort (met voorsprong komt het bericht seconden eerder binnen)
                 t = float(m.get("t", nu)) + vertraging
                 self.energie_rij.append((t, float(m.get("e", 0.5)), bron))
                 if m.get("kick") is not None:
                     self.lichtman.punt(float(m.get("kt", m.get("t", nu))) + vertraging, float(m["kick"]),
-                                       float(m.get("e", 0.5)))
+                                       float(m.get("e", 0.5)), m.get("rel"), m.get("abs"))
                 else:          # oude beat-luisteraar zonder kick-meting: alleen de energie
                     self.lichtman.punt(t, 0.8 * float(m.get("e", 0.5)), float(m.get("e", 0.5)))
                 return
@@ -648,7 +671,6 @@ class Engine:
     def muziek_vergeet(self, t):
         """Ander nummer gekozen of gespoeld: wat nog gepland stond (van het oude stuk) geldt niet meer."""
         with self.lock:
-            self.pauze_sinds = None
             self.energie_rij = deque(((tt, e, b) for tt, e, b in self.energie_rij if tt < t), maxlen=400)
             self.noten = deque(((tt, k) for tt, k in self.noten if tt < t), maxlen=64)
             self.lichtman.vergeet_vanaf(t)
@@ -662,7 +684,7 @@ class Engine:
         nr = int(beat // max(4, int(auto.get("elke", 32))))
         sectie = self.lm["sectie"] if self.lm else None
         # nieuwe look op de maat, én meteen als het nummer omslaat (drop!, of het wordt rustig)
-        grof = {"opbouw": "rustig", "break": "rustig"}.get(sectie, sectie)
+        grof = {"opbouw": "rustig", "break": "rustig", "druk": "groove", "extreem": "drop"}.get(sectie, sectie)
         omslag = grof != getattr(self, "auto_sectie", None) and sectie != "opbouw"
         if nr == self.auto_stap_nr and not omslag:
             return
@@ -735,6 +757,14 @@ class Engine:
             self.bew_fasen[naam] = fase
         self.vorige_beat = beat
         self.drop_nu = bool(st and st["flits"] and cfg_e.get("flits_bij_drop", True))
+        if st and cfg_e.get("strobe", True) and st["sectie"] != "pauze":
+            tel = 60.0 / max(40.0, float(show.get("bpm", 128)))
+            sinds = st.get("sinds_drop")
+            if sinds is not None and sinds < 4 * tel and st.get("hard") and \
+                    (st.get("drop_nr", 0) >= 2 or st["sectie"] == "extreem"):
+                self.drop_nu = True             # 2e/3e drop van een hard nummer: 4 tellen strobe
+            elif st["sectie"] == "extreem" and self.muziek_beat % 32 < 1:
+                self.drop_nu = True             # extreem: elke 8 maten een tel strobe
         opbouw_aan = bool(st and cfg_e.get("opbouw_voor_drop", True))
         self.opbouw = st["opbouw"] if opbouw_aan and st["sectie"] == "opbouw" else None
         self.gat = bool(opbouw_aan and st["gat"])
@@ -1098,11 +1128,11 @@ class Engine:
         eerste = inf["cellen"][0]
         gem_E = sum(stand.E.values()) / max(1, len(stand.E))
 
-        # pan/tilt binnen de grenzen van deze lamp
+        # pan/tilt binnen de grenzen van deze lamp (min, midden = rustpositie, max; omgekeerd als hij op z'n kop hangt)
         p = 1.0 - stand.pan if fx.get("pan_omkeren") else stand.pan
         t = 1.0 - stand.tilt if fx.get("tilt_omkeren") else stand.tilt
-        pan_v = fx.get("pan_min", 0) + p * (fx.get("pan_max", 255) - fx.get("pan_min", 0))
-        tilt_v = fx.get("tilt_min", 0) + t * (fx.get("tilt_max", 255) - fx.get("tilt_min", 0))
+        pan_v = bereik(p, fx.get("pan_min", 0), fx.get("pan_midden"), fx.get("pan_max", 255))
+        tilt_v = bereik(t, fx.get("tilt_min", 0), fx.get("tilt_midden"), fx.get("tilt_max", 255))
         pan16 = int(clamp(pan_v, 0, 255) / 255.0 * 65535)
         tilt16 = int(clamp(tilt_v, 0, 255) / 255.0 * 65535)
 
@@ -1337,6 +1367,25 @@ class Engine:
             self.gewijzigd(patch=True)
             return pid
 
+    def zet_beweging(self, fid, waarden):
+        """Bereik van pan/tilt van één lamp, meteen (zonder de hele patch opnieuw op te slaan)."""
+        with self.lock:
+            fx = next((f for f in self.data["fixtures"] if f["id"] == int(fid)), None)
+            if fx is None:
+                raise ValueError("Onbekende lamp")
+            nieuw = dict(fx)
+            for k in ("pan_min", "pan_max", "tilt_min", "tilt_max", "pan_midden", "tilt_midden",
+                      "pan_omkeren", "tilt_omkeren"):
+                if k in waarden:
+                    nieuw[k] = waarden[k]
+            schoon = self.schone_fixtures([nieuw], self.data["profielen"])[0]
+            for k in ("pan_min", "pan_max", "tilt_min", "tilt_max", "pan_midden", "tilt_midden",
+                      "pan_omkeren", "tilt_omkeren"):
+                fx[k] = schoon[k]
+            self.gewijzigd()
+            return {k: fx[k] for k in ("pan_min", "pan_max", "tilt_min", "tilt_max", "pan_midden", "tilt_midden",
+                                       "pan_omkeren", "tilt_omkeren")}
+
     def zet_faders(self, faders):
         with self.lock:
             self.data["faders"] = self.schone_faders(faders)
@@ -1458,6 +1507,7 @@ class Engine:
         if not st:
             return None
         return {"sectie": st["sectie"], "naam": SECTIES.get(st["sectie"], "Pauze" if st["sectie"] == "pauze" else st["sectie"]),
+                "strobe": self.drop_nu and not st["flits"],
                 "opbouw": round(st["opbouw"], 2) if st["opbouw"] is not None else None,
                 "kick": st["kick"], "niveau": st["niveau"], "flits": st["flits"],
                 "drop_over": round(st["drop_t"] - nu, 1) if st["drop_t"] else None}
@@ -1504,7 +1554,7 @@ class Engine:
                          for b, i in self.luister.items()},
                 lichtman=self.lichtman_info(nu),
             )
-            s.update(self.extra_status)
+            s.update({k: (v() if callable(v) else v) for k, v in self.extra_status.items()})
         return s
 
 

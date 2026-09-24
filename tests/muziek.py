@@ -48,16 +48,24 @@ def rustig(bpm=150, sec=20, seed=1):
     return (y + pad).astype(np.float32)
 
 
+def _screech(freq, lengte, rng):
+    """Vervormde, felle lead (zoals in hardstyle): zaagtand door een overstuurde versterker."""
+    t = np.arange(int(lengte * SR)) / SR
+    zaag = 2 * ((freq * t) % 1.0) - 1 + 0.5 * (2 * ((freq * 1.01 * t) % 1.0) - 1)
+    return (np.tanh(3 * zaag) * np.minimum(1, t / 0.01) * 0.35 + 0.05 * _ruis(len(t), rng)).astype(np.float32)
+
+
 def hardstyle(bpm=150, sec=20, seed=2):
-    """Harde kick op elke tel, vervormd, plus een lead."""
+    """Harde vervormde kick op elke tel, felle screech-lead, hi-hats en ruis: vol en druk."""
     rng = np.random.default_rng(seed)
     y = np.zeros(int(sec * SR), dtype=np.float32)
     p = 60 / bpm
     for k, t in enumerate(np.arange(0, sec, p)):
         _leg(y, kick(p * 0.95, hard=True), t)
-        hat = 0.08 * _ruis(int(0.04 * SR), rng) * np.exp(-np.arange(int(0.04 * SR)) / SR * 60)
-        _leg(y, hat, t + p / 2)
-        _leg(y, 0.6 * _toon([440, 523, 587, 659][(k // 2) % 4], p * 0.5, zacht=False), t + p / 2)
+        for d in (0.25, 0.5, 0.75):
+            hat = 0.25 * _ruis(int(0.05 * SR), rng) * np.exp(-np.arange(int(0.05 * SR)) / SR * 50)
+            _leg(y, hat, t + p * d)
+        _leg(y, _screech([440, 523, 587, 659][(k // 2) % 4], p * 0.45, rng), t + p / 2)
     return np.tanh(1.2 * y).astype(np.float32)
 
 

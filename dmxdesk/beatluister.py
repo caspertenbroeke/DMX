@@ -474,8 +474,13 @@ class Doorgever:
     """Muziek met voorsprong doorgeven: eerst analyseren, pas `voorsprong` seconden later afspelen.
 
     Zo weet de lichtshow vooraf wanneer elke beat, noot en drop te horen is (en kan hij naar een drop
-    opbouwen). Spotify (librespot) en MPD leveren sneller dan echte tijd; de rij houdt ze in toom en
-    het afspelen bepaalt het tempo. Bij een pauze speelt de rij nog leeg en gaat de geluidskaart dicht."""
+    opbouwen). Spotify (librespot) en MPD leveren meestal sneller dan echte tijd; de rij houdt ze in toom
+    en het afspelen bepaalt het tempo.
+
+    Voorvullen: aan het begin (en na leeg() of als de aanvoer hapert) wacht het afspelen tot er echt
+    `voorsprong` seconden klaarstaan. Anders zou de voorsprong afhangen van hoe snel er geleverd wordt.
+    Staat het geluid stil (voorvullen, pauze, haperen), dan krijgt de lichtshow een 'pauze'-bericht, en
+    als het verder gaat een 'verder'-bericht: alles wat voor het licht gepland stond schuift dan mee."""
 
     BPS = SR * FRAME_BYTES      # bytes per seconde
 
@@ -497,12 +502,43 @@ class Doorgever:
         self.stoppen = threading.Event()
         self.speelt = False
         self.fout = None            # waarom de geluidskaart niet open kan
+        self.actief = False         # het geluid loopt (niet op pauze, niet aan het voorvullen)
+        self.t_stil = None          # sinds wanneer het stilstaat (of wanneer het voorvullen begon)
+        self.vul_nodig = True       # eerst de voorsprong klaarzetten (begin, na leeg(), na haperen)
+        self._uit = []              # berichten voor de lichtshow (buiten de lock versturen)
 
     def _zet(self, speelt, fout):
         if (speelt, fout) != (self.speelt, self.fout):
             self.speelt, self.fout = speelt, fout
             if self.melding:
                 self.melding()
+
+    # ---- toestand (alleen met self.cond vast)
+    def _stil(self, t):
+        if self.actief:
+            self.actief, self.t_stil = False, t
+            self._uit.append({"soort": "pauze", "t": t})
+
+    def _aan(self):
+        if not self.actief:
+            self.actief, self.vul_nodig = True, False
+            self._uit.append({"soort": "verder"})
+
+    def _verstuur(self):
+        with self.cond:
+            berichten, self._uit = self._uit, []
+        for b in berichten:
+            self.a.stuur(b)
+
+    def vooruit(self):
+        """Hoeveel seconden het licht nu echt vooruit hoort (wat er klaarstaat)."""
+        return (self.in_rij + self.bezig) / self.BPS
+
+    def zet_voorsprong(self, voorsprong):
+        with self.cond:
+            self.voorsprong = max(0.0, float(voorsprong))
+            self.max_bytes = max(8192, int(self.voorsprong * self.BPS))
+            self.cond.notify_all()
 
     def lees(self, lees_blok):
         """Leest tot het einde: lees_blok() geeft bytes, b"" = einde. Analyseert meteen, afspelen gebeurt later."""
@@ -525,13 +561,17 @@ class Doorgever:
                     # (tijdens een pauze niet wachten: anders kan het 'verder spelen'-bericht niet gelezen worden)
                     while self.in_rij >= self.max_bytes and not self.stoppen.is_set() and not self.gepauzeerd:
                         self.cond.wait(0.1)
+                    if self.t_stil is None:                  # eerste geluid: het voorvullen begint nu
+                        self.t_stil = time.time()
+                        self._uit.append({"soort": "pauze", "t": self.t_stil})
                     self.rij.append(data)
                     self.in_rij += len(data)
-                    # dit stukje is de geluidskaart in na alles wat er nog voor staat (rij + wat nu geschreven wordt);
-                    # zelfde moment als vroeger 'net geschreven', dus de schuiven 'licht gelijk zetten' blijven kloppen
-                    t_speel = (time.time() + (self.in_rij + self.bezig) / self.BPS
-                               + getattr(self.uitgang, "latentie", 0.0))
+                    # dit stukje is te horen na alles wat er nog voor staat. Loopt het geluid nog niet (voorvullen,
+                    # pauze), dan telt het vanaf het moment dat het stil kwam te staan; bij 'verder' schuift het licht mee.
+                    basis = time.time() if self.actief else self.t_stil
+                    t_speel = basis + (self.in_rij + self.bezig) / self.BPS + getattr(self.uitgang, "latentie", 0.0)
                     self.cond.notify_all()
+                self._verstuur()
                 self.a.voer(data, t_speel)
         finally:
             with self.cond:
@@ -540,11 +580,12 @@ class Doorgever:
 
     # ---- bediening (vanuit de draad die lees() doet, of van buitenaf)
     def pauzeer(self):
-        """Meteen stil (de rij blijft bewaard). Geeft het moment terug waarop het geluid stopte."""
+        """Meteen stil (de rij blijft bewaard)."""
         with self.cond:
             self.gepauzeerd = True
+            self._stil(time.time() + self.bezig / self.BPS)
             self.cond.notify_all()
-        return time.time() + self.bezig / self.BPS
+        self._verstuur()
 
     def hervat(self):
         with self.cond:
@@ -552,11 +593,15 @@ class Doorgever:
             self.cond.notify_all()
 
     def leeg(self):
-        """Alles wat nog in de rij staat weggooien (volgende nummer, spoelen): het nieuwe is meteen te horen."""
+        """Alles wat nog in de rij staat weggooien (volgende nummer, spoelen). Daarna eerst weer voorvullen."""
         with self.cond:
             self.rij.clear()
             self.in_rij = 0
+            self.actief, self.vul_nodig = False, True
+            self.t_stil = time.time() + self.bezig / self.BPS
+            self._uit.append({"soort": "pauze", "t": self.t_stil})
             self.cond.notify_all()
+        self._verstuur()
 
     def markeer(self, functie):
         """functie() wordt aangeroepen op het moment dat alles wat nu in de rij staat gespeeld is."""
@@ -569,22 +614,39 @@ class Doorgever:
         open_, leeg_sinds, niet_voor = False, None, 0.0
         while not self.stoppen.is_set():
             with self.cond:
-                if not self.rij or self.gepauzeerd:
-                    if self.klaar and not self.rij:
-                        break
-                    self.cond.wait(0.25)
-                data = self.rij.popleft() if self.rij and not self.gepauzeerd else None
-                if data is not None and not callable(data):
-                    self.in_rij -= len(data)
-                    self.bezig = len(data)
-                    self.cond.notify_all()
+                nu = time.time()
+                if not self.actief and not self.gepauzeerd and self.rij:
+                    vol = self.in_rij >= 0.97 * self.max_bytes
+                    te_lang = self.t_stil is not None and nu - self.t_stil > self.voorsprong + 3.0
+                    if not self.vul_nodig or vol or self.klaar or te_lang:
+                        self._aan()
+                data = None
+                if self.actief:
+                    if not self.rij and not self.klaar:
+                        self.cond.wait(0.25)
+                    if self.rij:
+                        data = self.rij.popleft()
+                        if not callable(data):
+                            self.in_rij -= len(data)
+                            self.bezig = len(data)
+                            self.cond.notify_all()
+                elif not (self.klaar and not self.rij):
+                    self.cond.wait(0.1)
+                if data is None and self.klaar and not self.rij:
+                    break
+            self._verstuur()
             if callable(data):
                 data()
                 continue
             nu = time.time()
             if data is None:
                 leeg_sinds = leeg_sinds or nu
-                if open_ and nu - leeg_sinds > 0.6:      # gepauzeerd: geluidskaart vrijgeven
+                if self.actief and nu - leeg_sinds > 0.3:   # aanvoer hapert: stil, en eerst weer voorvullen
+                    with self.cond:
+                        self._stil(leeg_sinds)
+                        self.vul_nodig = True
+                    self._verstuur()
+                if open_ and nu - leeg_sinds > 0.6:          # niets te spelen: geluidskaart vrijgeven
                     self.uitgang.stop()
                     open_ = False
                     self._zet(False, None)

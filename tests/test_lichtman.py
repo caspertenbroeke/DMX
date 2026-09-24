@@ -59,7 +59,7 @@ def test_rustig_nummer_op_hoog_tempo_blijft_rustig(rustig_en_hard):
     secties_rustig = {s for t, s, _ in rustig if t > 4}
     secties_hard = {s for t, s, _ in hard if t > 4}
     assert secties_rustig <= {"rustig", "break"}, secties_rustig
-    assert secties_hard == {"drop"}, secties_hard
+    assert secties_hard and secties_hard <= {"druk", "drop", "extreem"}, secties_hard
     top_rustig = np.percentile([h for t, _, h in rustig if t > 4], 95)
     top_hard = np.percentile([h for t, _, h in hard if t > 4], 95)
     assert top_hard > 0.9 and top_rustig < 0.7, (top_hard, top_rustig)   # hardstyle knalt vol open, rustig gedimd
@@ -78,10 +78,10 @@ def test_opbouw_en_drop_op_tijd():
     assert drops and abs(drops[-1] - drop) < 0.15, drops
     frames = speel_af(y)
     sectie = {round(t, 2): s for t, s, _ in frames}
-    assert sectie[5.0] == "drop"
+    assert sectie[5.0] in ("groove", "druk", "drop")
     assert sectie[16.0] in ("break", "rustig")
     assert sectie[round(drop - 2.0, 2)] == "opbouw"
-    assert sectie[round(drop + 1.0, 2)] == "drop"
+    assert sectie[round(drop + 1.0, 2)] in ("drop", "extreem")
     # vlak voor de drop even donker, op de drop vol licht
     helder = {round(t, 2): h for t, _, h in frames}
     assert helder[round(drop - 0.1, 2)] == 0.0
@@ -152,3 +152,50 @@ def test_pauze_schuift_alles_mee_en_ander_nummer_vergeet():
     assert abs(e.lichtman.punten[-1][0] - (nu + 5 + v + 2.0)) < 0.1
     e.muziek_vergeet(time.time())                 # volgende nummer: de oude toekomst geldt niet meer
     assert not e.lichtman.drops and not e.lichtman.punten
+
+
+def _lm_nummer(lm, van, tot, kick, abs_, rel=0.5, e=0.6):
+    for i in range(int((tot - van) * 10)):
+        lm.punt(van + i / 10, kick, e, rel, abs_)
+
+
+def test_meer_stappen_en_de_schuif_maakt_het_rustiger():
+    """Rustig nummer met kick = groove; luider/voller refrein = hoger; met de schuif laag wordt dat minder wild."""
+    uitkomst = {}
+    for wild in (0.2, 0.7, 1.0):
+        lm = Lichtman()
+        _lm_nummer(lm, 0, 20, kick=1.0, abs_=0.2, rel=0.5)          # couplet: rustig nummer mét kick
+        _lm_nummer(lm, 20, 40, kick=1.0, abs_=0.65, rel=0.85)       # refrein: voller en harder
+        couplet = [lm.stand(t, wild)["sectie"] for t in (8, 12, 16)]
+        refrein = [lm.stand(t, wild)["sectie"] for t in (30, 34, 38)]
+        uitkomst[wild] = (couplet, refrein)
+    for wild, (couplet, refrein) in uitkomst.items():
+        assert set(couplet) <= ({"groove"} if wild <= 0.7 else {"groove", "druk"}), (wild, couplet)
+    rang = {s: i for i, s in enumerate(["groove", "druk", "drop", "extreem"])}
+    assert rang[uitkomst[0.7][1][-1]] >= rang["druk"]
+    assert rang[uitkomst[0.2][1][-1]] < rang[uitkomst[1.0][1][-1]]     # schuif laag = minder snel vol gas
+
+
+def test_strobe_bij_de_tweede_drop_van_een_hard_nummer():
+    e = Engine(None)
+    e.bpm_t0 = 0.0
+    nu = time.time()
+    v = e.data["show"]["beat"]["vertraging_connect"] / 1000.0
+    for i in range(700):                                            # 70 s: hard nummer met twee breaks
+        t = nu - 20 + i / 10
+        kick = 0.0 if (5 < t - nu < 15 or 30 < t - nu < 40) else 1.0
+        e.beat_bericht({"soort": "energie", "bron": "connect", "t": t, "kt": t, "kick": kick, "e": 0.8,
+                        "rel": 0.6, "abs": 0.85})
+    for d in (15, 40):
+        e.beat_bericht({"soort": "drop", "bron": "connect", "t": nu + d - v})
+    tel = 60.0 / e.data["show"]["bpm"]
+    e.bpm_t0 = nu + 40 + 4 * tel + 0.3 - 16 * tel      # daar valt tel 16 van 32: geen 'af en toe'-strobeklap
+    e.render(nu + 15 + 1.0)
+    assert not e.drop_nu                    # 1e drop: alleen de korte flits (0,45 s), daarna geen strobe
+    e.render(nu + 40 + 1.0)
+    assert e.drop_nu                        # 2e drop van een hard nummer: strobe
+    e.render(nu + 40 + 4 * tel + 0.3)
+    assert not e.drop_nu                    # na 4 tellen weer uit
+    e.data["show"]["energie"]["strobe"] = False
+    e.render(nu + 40 + 1.0)
+    assert not e.drop_nu                    # uit te zetten

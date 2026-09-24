@@ -310,3 +310,19 @@ body.met-speler #inhoud { padding-bottom: 88px; }
   #speler .voortgang, #speler .volume { display: none; }
 }
 body.met-speler #menu { bottom: 68px; }
+
+/* lichtman: treden van rustig naar extreem */
+.treden { display: flex; gap: 4px; margin: 0 0 10px; }
+.treden span { flex: 1; text-align: center; padding: 5px 2px; border-radius: 6px; font-size: 11px; font-weight: 700;
+  background: var(--vlak3); color: var(--zachter); transition: background .15s, color .15s; }
+.treden span.aan[data-trede="rustig"] { background: #7fb4ff; color: #000; }
+.treden span.aan[data-trede="opbouw"] { background: #ff9a3c; color: #000; }
+.treden span.aan[data-trede="groove"] { background: var(--accent); color: #000; }
+.treden span.aan[data-trede="druk"] { background: #ff7a45; color: #000; }
+.treden span.aan[data-trede="drop"] { background: #ff4d6d; color: #fff; }
+.treden span.aan[data-trede="extreem"] { background: #d0147a; color: #fff; }
+.lichtman .sectie-druk { color: #ff7a45; }
+.lichtman .sectie-extreem { color: #ff2e8e; }
+.chip.lm-druk { color: #ff7a45; border-color: #ff7a4588; }
+.chip.lm-extreem { color: #fff; background: #d0147a; border-color: #d0147a; }
+.chip.lm-pauze { color: var(--zacht); }

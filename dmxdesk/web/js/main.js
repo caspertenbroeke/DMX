@@ -76,7 +76,7 @@ function kopLive(L) {
   const lm = s.lichtman, klm = $('#kLm');
   klm.hidden = !lm;
   if (lm) {
-    klm.textContent = lm.flits ? '💥 DROP' : lm.naam + (lm.sectie === 'opbouw' && lm.opbouw !== null ? ` ${Math.round(lm.opbouw * 100)}%` : '')
+    klm.textContent = lm.flits ? '💥 DROP' : lm.strobe ? '⚡ STROBE' : lm.naam + (lm.sectie === 'opbouw' && lm.opbouw !== null ? ` ${Math.round(lm.opbouw * 100)}%` : '')
       + (lm.drop_over && lm.sectie === 'opbouw' ? ` · drop ${Math.ceil(lm.drop_over)}s` : '');
     klm.className = 'chip lm-' + lm.sectie;
   }
@@ -142,7 +142,8 @@ function spelerLive(L) {
   if (!zien) { sp = null; return; }
   sp = st.speler; spKlok = L.s.tijd - Date.now() / 1000;   // verschil tussen de klok van DMXDesk en deze
   $('#spNaam').textContent = sp.naam || (st.verbonden ? 'Kies een nummer in Spotify' : '–');
-  $('#spArtiest').textContent = (sp.artiesten || []).join(', ') + (sp.bediening ? ` · via ${sp.bediening}` : '');
+  $('#spArtiest').textContent = (sp.artiesten || []).join(', ') + (sp.bediening ? ` · via ${sp.bediening}` : '')
+    + (st.vullen ? ` · licht klaarzetten… ${st.vooruit}/${st.voorsprong} s` : st.vooruit ? ` · licht ${st.vooruit} s vooruit` : '');
   const hoes = $('#spHoes'), url = sp.hoes || '';
   if (hoes.dataset.url !== url) { hoes.dataset.url = url; hoes.style.backgroundImage = url ? `url("${url}")` : ''; }
   $('#spPlay').textContent = sp.speelt ? '⏸' : '▶';

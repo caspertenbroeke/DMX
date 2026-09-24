@@ -110,9 +110,11 @@ De app is meteen een Spotify-speaker, net als een Sonos of de Pi met raspotify:
 3. De muziek komt uit de luidsprekers van de computer, en het licht loopt mee.
 
 DMXDesk hoort elk stukje muziek eerst en speelt het pas **8 seconden later** af (instelbaar 0–20 s). Zo weet de
-lichtman vooraf waar de beats, de melodie en de drops vallen. Pauze, volgend nummer, spoelen en volume werken
-toch meteen: de speaker meldt ze direct, DMXDesk gooit dan de wachtrij weg of zet hem stil, en past het volume pas
-bij het afspelen toe.
+lichtman vooraf waar de beats, de melodie en de drops vallen. Na het kiezen van een nummer begint de muziek daarom
+pas als die voorsprong er echt is (*licht klaarzetten*; meestal binnen een paar seconden). Pauze, spoelen en volume
+werken toch meteen: de speaker meldt ze direct, DMXDesk zet de muziek stil (het licht wacht netjes mee) of past het
+volume pas bij het afspelen toe. De voorsprong verander je tijdens het spelen zonder dat de muziek stopt; in
+*Geluid* zie je hoeveel het licht nu echt vooruit hoort.
 
 **De speler** zit onderin de app (hoes, titel, vorige / pauze / volgende, voortgang, volume) en op de telefoonpagina
 (tabblad **Muziek**). Hij bedient dezelfde Spotify-sessie: wat je in de Spotify-app doet, zie je in DMXDesk en
@@ -142,12 +144,24 @@ nummer is:
 | **Break** | Idem, na een stuk met kick (breakdown): klaar voor de volgende klap. Het tempo blijft staan |
 | **Opbouw** | Op de maat steeds sneller knipperen (1, 2, 4, 8 keer per tel), feller en naar wit; vlak voor de drop even donker |
 | **Drop** | Witte flits precies op de eerste kick, dan vol gas: effecten op de beat, knal op elke kick, snel en groot |
-| **Groove** | Kick, maar niet heel hard: op de maat, effecten 2× trager |
+| **Groove** | Kick, maar rustig (couplet, rustig nummer met drums): op de maat, effecten 2× trager |
+| **Druk** | Voller en harder: effecten op de beat, wat punch op de kick |
+| **Vol gas** | De luidste, volste stukken en de eerste tellen na een drop |
+| **Extreem!** | Alleen bij harde nummers (hardstyle e.d.): nog sneller, en af en toe een tel strobe |
 
 De drop is het moment dat de kick terugkomt na een stuk zonder kick. Met de Spotify-speaker ziet de lichtman die tot
 8 s van tevoren aankomen; via de microfoon/line-in herkent hij alles ook, alleen iets later en zonder opbouw vooraf.
-**Rustig ↔ wild** bepaalt hoe groot het verschil tussen de stukken is. Met *Auto-show* kiest hij ook zelf
+Bij de **2e en 3e drop** van een hard nummer gaat de strobe een paar tellen aan (*Strobe bij harde drops*).
+**Wildheid** bepaalt hoe groot het verschil tussen de stukken is én hoe snel hij naar *vol gas* gaat: lager = rustiger.
+Welk niveau hij nu kiest zie je bovenin en in de treden bij *Effecten → Lichtman*. Met *Auto-show* kiest hij ook zelf
 passende patronen en bij een drop meteen iets nieuws.
+
+## Beweging per lamp
+
+*Patch → Beweging per lamp*: voor alles met pan/tilt (moving heads, scanners, lasers) stel je per lamp **min**,
+**midden** (rustpositie) en **max** in, en **omkeren** als hij op z'n kop hangt of de andere kant op draait. Het werkt
+meteen; met de testknoppen (links, midden, rechts, omlaag, omhoog) zie je waar hij heen gaat, daarna *Loslaten*.
+Alle bewegingseffecten blijven binnen dat bereik en draaien om het midden.
 
 ## Lagen
 

@@ -14,7 +14,8 @@ function spotifyStatus(st, cfg) {
   if (!cfg.aan) return 'Uit';
   if (st.fout) return `<span class="fout">${esc(st.fout)}</span>`;
   if (!st.aan) return 'Starten…';
-  if (st.speelt) return `<i class="dot ok"></i> Speelt${st.nummer ? `: <b>${esc(st.nummer)}</b>` : ''} (licht ${cfg.voorsprong} s vooruit)`;
+  if (st.vullen) return `<i class="dot half"></i> Licht klaarzetten: ${st.vooruit} van ${cfg.voorsprong} s gehoord, dan begint de muziek`;
+  if (st.speelt) return `<i class="dot ok"></i> Speelt${st.nummer ? `: <b>${esc(st.nummer)}</b>` : ''} · het licht hoort nu <b>${st.vooruit} s</b> vooruit (ingesteld ${cfg.voorsprong} s)`;
   if (st.verbonden) return `<i class="dot half"></i> Verbonden met Spotify, wacht op muziek${st.nummer ? ` (laatst: ${esc(st.nummer)})` : ''}`;
   return `<i class="dot half"></i> Klaar: kies <b>${esc(cfg.naam)}</b> als speaker in de Spotify-app`;
 }
@@ -38,7 +39,8 @@ function spotify() {
        <div class="rij"><label>Licht vooruit</label><input type="range" min="0" max="20" step="0.5" value="${cfg.voorsprong}" id="glSpVoor">
          <span class="waarde">${cfg.voorsprong} s</span></div>
        <p class="hint">Open Spotify op je telefoon of computer (zelfde wifi), tik op het speaker-icoon en kies <b>${esc(cfg.naam)}</b>,
-         net als bij Sonos. DMXDesk hoort de muziek eerst en speelt hem <b>${cfg.voorsprong} seconden later</b> af: zo weet de lichtshow vooraf
+         net als bij Sonos. DMXDesk hoort de muziek eerst en speelt hem <b>${cfg.voorsprong} seconden later</b> af (na het kiezen van
+         een nummer duurt het dus even voor je iets hoort): zo weet de lichtshow vooraf
          waar elke beat en drop valt en bouwt hij op naar de drop. Pauze, volgende nummer en volume werken toch meteen,
          in Spotify én met de speler onderin (of op je telefoon: tabblad Muziek). Spotify Premium is nodig (geldt voor elke Spotify-speaker).
          ${S.systeem.platform === 'win32' ? 'Windows vraagt de eerste keer of <b>dmxdesk-spotify</b> het netwerk mag gebruiken: kies <b>Toestaan</b> (privé-netwerk).' : ''}</p>`;

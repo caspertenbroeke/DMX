@@ -340,6 +340,8 @@ class Handler(BaseHTTPRequestHandler):
             e.zet_fader(body["id"], body.get("waarde", 0))
         elif pad == "/api/test":
             e.zet_test(body.get("fixture"), body.get("waarden", []))
+        elif pad == "/api/beweging":
+            return self.stuur(200, e.zet_beweging(body.get("fixture"), body.get("waarden") or {}))
         elif pad == "/api/zoek":
             e.identificeer(body.get("fixture"), float(body.get("seconden") or 4))
         elif pad == "/api/uitgangen":

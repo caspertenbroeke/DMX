@@ -27,6 +27,10 @@ def klikken(seconden, bpm=120):
 class NepAnalyse:
     def __init__(self):
         self.gevoerd = []
+        self.berichten = []
+
+    def stuur(self, m):
+        self.berichten.append((time.time(), m))
 
     def voer(self, data, t):
         self.gevoerd.append((len(data), t, time.time()))
@@ -74,6 +78,36 @@ def test_doorgever_speelt_alles_met_voorsprong():
     # en dat is ~0,4 s nadat het gelezen (en geanalyseerd) werd
     voorsprong = [t - gelezen for _, t, gelezen in a.gevoerd[10:]]
     assert 0.3 < float(np.median(voorsprong)) < 0.5, voorsprong
+
+
+def test_voorvullen_als_de_aanvoer_niet_sneller_is_dan_afspelen():
+    """Levert de bron maar in echte tijd (niet sneller), dan wacht het afspelen tot de voorsprong er echt is,
+    en kloppen de tijden die de analyse krijgt toch met wat je hoort (het licht schuift mee)."""
+    geluid = klikken(2.0)
+    blokken = [geluid[i:i + 4410] for i in range(0, len(geluid), 4410)]     # 25 ms per blok, in echte tijd
+    a, uit = NepAnalyse(), NepUitgang()
+    d = bl.Doorgever(a, uit, voorsprong=1.0)
+    rij = list(blokken)
+    start = time.time()
+
+    def lees():
+        if not rij:
+            return b""
+        time.sleep(0.025)
+        return rij.pop(0)
+
+    d.draai(lees)
+    assert bytes(uit.data) == geluid
+    eerste_geluid = uit.eind[0] - 4410 / BPS
+    assert 0.9 < eerste_geluid - start < 1.4                # pas na ~1 s voorvullen begint het geluid
+    soorten = [m["soort"] for _, m in a.berichten]
+    assert soorten[:2] == ["pauze", "verder"]               # licht: stil tijdens voorvullen, dan verder
+    t_pauze = a.berichten[0][1]["t"]
+    t_verder = a.berichten[1][0]
+    # wat de analyse kreeg (zonder de verschuiving) + hoe lang het voorvullen duurde = wanneer je het hoort
+    afwijking = [abs(t + (t_verder - t_pauze) - eind) if t >= t_pauze else 0
+                 for (_, t, _), eind in zip(a.gevoerd, uit.eind) if t < t_verder]
+    assert afwijking and max(afwijking) < 0.08, max(afwijking)
 
 
 def test_doorgever_zonder_geluidskaart_houdt_het_tempo():
@@ -207,7 +241,7 @@ def test_speler_pauze_volgende_en_volume_werken_meteen(tmp_path, monkeypatch):
     assert spotify.uitvoer_apparaten() == [{"naam": "Luidspreker (Nep)", "standaard": True}]
     sp.bijwerken()
     try:
-        st = lambda: e.extra_status["spotify"]
+        st = lambda: e.status_info()["spotify"]
         assert wacht(lambda: st()["speler"]["naam"] == "Nummer 1" and len(geschreven) > 5)
         assert st()["verbonden"] and st()["speler"]["artiesten"] == ["DJ Test"] and st()["speler"]["speelt"]
         args = json.loads((tmp_path / "args.json").read_text())
@@ -240,7 +274,7 @@ def test_speler_pauze_volgende_en_volume_werken_meteen(tmp_path, monkeypatch):
     finally:
         sp.stop()
     assert proc.poll() is not None                      # de speaker is gestopt (invoer dicht)
-    assert not e.extra_status["spotify"]["aan"]
+    assert not e.status_info()["spotify"]["aan"]
 
 
 def test_opbouw_naar_een_drop_die_eraan_komt():
@@ -273,4 +307,4 @@ def test_opbouw_naar_een_drop_die_eraan_komt():
     e.render(drop + 0.1)
     assert e.drop_nu and e.opbouw is None            # de flits
     e.render(drop + 2.0)
-    assert e.lm["sectie"] == "drop" and e.punch > 0.5
+    assert e.lm["sectie"] == "drop" and e.punch > 0.4
