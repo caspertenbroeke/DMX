@@ -1,5 +1,5 @@
 // Hoofdscript: menu, kopbalk, sneltoetsen en het wisselen tussen tabbladen.
-import { K, op, api, doe, laadState, startLive, $, esc, houd, lasAlles, toast, vraag } from './kern.js';
+import { K, op, api, doe, laadState, startLive, $, esc, houd, lasAlles, toast, vraag, afremmen } from './kern.js';
 import live from './tabs/live.js';
 import effecten from './tabs/effecten.js';
 import programmer from './tabs/programmer.js';
@@ -130,7 +130,40 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) lasAl
 
 // ------------------------------------------------------------------ start
 op('state', S => { kopState(S); opnieuwTekenen(); });
-op('live', L => { kopLive(L); if (huidig && huidig.live) huidig.live(L); });
+op('live', L => { kopLive(L); spelerLive(L); if (huidig && huidig.live) huidig.live(L); });
+
+// ------------------------------------------------------------------ speler (Spotify-speaker)
+const tijd = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+let sp = null, spKlok = 0, volumeBezig = 0;
+function spelerLive(L) {
+  const st = L.s.spotify, balk = $('#speler');
+  const zien = !!(st && st.aan && (st.verbonden || (st.speler && st.speler.naam)));
+  balk.hidden = !zien; document.body.classList.toggle('met-speler', zien);
+  if (!zien) { sp = null; return; }
+  sp = st.speler; spKlok = L.s.tijd - Date.now() / 1000;   // verschil tussen de klok van DMXDesk en deze
+  $('#spNaam').textContent = sp.naam || (st.verbonden ? 'Kies een nummer in Spotify' : '–');
+  $('#spArtiest').textContent = (sp.artiesten || []).join(', ') + (sp.bediening ? ` · via ${sp.bediening}` : '');
+  const hoes = $('#spHoes'), url = sp.hoes || '';
+  if (hoes.dataset.url !== url) { hoes.dataset.url = url; hoes.style.backgroundImage = url ? `url("${url}")` : ''; }
+  $('#spPlay').textContent = sp.speelt ? '⏸' : '▶';
+  if (Date.now() - volumeBezig > 1500) $('#spVolume').value = sp.volume;
+}
+setInterval(() => {                                        // voortgangsbalk soepel laten lopen
+  if (!sp || !sp.duur) return;
+  const pos = sp.pos + (sp.speelt ? (Date.now() / 1000 + spKlok - sp.pos_t) * 1000 : 0);
+  $('#spPos').textContent = tijd(Math.min(pos, sp.duur)); $('#spDuur').textContent = tijd(sp.duur);
+  $('#spBalk').style.width = Math.min(100, pos / sp.duur * 100) + '%';
+}, 250);
+const speler = (actie, waarde) => api('/api/speler', waarde === undefined ? { actie } : { actie, waarde }).catch(e => toast(e.message, true));
+$('#spVorige').onclick = () => speler('prev');
+$('#spVolgende').onclick = () => speler('next');
+$('#spPlay').onclick = () => {
+  const speelt = !!(sp && sp.speelt);
+  if (sp) { sp.speelt = !speelt; $('#spPlay').textContent = sp.speelt ? '⏸' : '▶'; }
+  speler(speelt ? 'pause' : 'play');
+};
+const stuurVolume = afremmen(v => speler('volume', v), 120);
+$('#spVolume').oninput = e => { volumeBezig = Date.now(); stuurVolume(Number(e.target.value)); };
 bouwMenu();
 (async () => {
   try { await api('/api/info'); } catch (e) { /* geen verbinding: live probeert het opnieuw */ }

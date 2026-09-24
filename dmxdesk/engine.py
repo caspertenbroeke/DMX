@@ -21,7 +21,7 @@ from collections import deque
 
 from .effecten import (ATTRIBUUT_MODI, BEWEGING_MODI, INTENSITEIT_MODI, KLEUR_MODI, attribuut_effect,
                        beweging_effect, bruikbare_opties, clamp, hex_rgb, intensiteit_effect, kleur_effect, rgb_hex)
-from .lichtman import SECTIES, Lichtman
+from .lichtman import SECTIES, Lichtman, profiel
 from .profielen import (ATTRIBUUT_FUNCTIES, FUNCTIES, KLEURFUNCTIES, STANDAARD_PROFIELEN, byte, koppen,
                         schoon_profiel)
 
@@ -234,6 +234,7 @@ class Engine:
         self.vorige_beat, self.bew_fasen = None, {}
         self.eff, self.drop_nu = None, False
         self.muziek_beat = 0.0
+        self.pauze_sinds = None          # Spotify-speaker op pauze: sinds wanneer
         self.bevroren = False
         self._eff_f, self._eff_offset, self._eff_laatste = None, 0.0, None
         self.scene_actief, self.scene_vorig = None, {}
@@ -626,6 +627,32 @@ class Engine:
             if abs(fout) < 0.35:
                 self.bpm_t0 += fout * 60.0 / float(self.data["show"]["bpm"]) * 0.35
 
+    # ------------------------------------------------------------ speler: pauze, verder, ander nummer
+    def muziek_pauze(self, t):
+        """De muziek staat stil (vanaf t). Het licht wordt rustig tot hij verder gaat."""
+        with self.lock:
+            self.pauze_sinds = t
+
+    def muziek_hervat(self):
+        """Verder na een pauze: alles wat gepland stond (beats, energie, noten, drops) schuift mee."""
+        with self.lock:
+            if self.pauze_sinds is None:
+                return
+            van, duur = self.pauze_sinds, max(0.0, time.time() - self.pauze_sinds)
+            self.pauze_sinds = None
+            self.bpm_t0 += duur
+            self.energie_rij = deque((((t + duur) if t >= van else t, e, b) for t, e, b in self.energie_rij), maxlen=400)
+            self.noten = deque((((t + duur) if t >= van else t, k) for t, k in self.noten), maxlen=64)
+            self.lichtman.verschuif(van, duur)
+
+    def muziek_vergeet(self, t):
+        """Ander nummer gekozen of gespoeld: wat nog gepland stond (van het oude stuk) geldt niet meer."""
+        with self.lock:
+            self.pauze_sinds = None
+            self.energie_rij = deque(((tt, e, b) for tt, e, b in self.energie_rij if tt < t), maxlen=400)
+            self.noten = deque(((tt, k) for tt, k in self.noten if tt < t), maxlen=64)
+            self.lichtman.vergeet_vanaf(t)
+
     # ------------------------------------------------------------ automatische show en energie
     def auto_stap(self, beat):
         auto = self.data["show"]["auto"]
@@ -662,7 +689,13 @@ class Engine:
     def lichtman_toepassen(self, show, beat, nu):
         """De lichtman bepaalt per moment hoe snel, fel en wild de show is; per laag met de eigen patronen."""
         cfg_e = show["energie"]
-        st = self.lichtman.stand(nu, float(cfg_e.get("contrast", 70)) / 100.0) if cfg_e.get("aan") else None
+        contrast = float(cfg_e.get("contrast", 70)) / 100.0
+        st = self.lichtman.stand(nu, contrast) if cfg_e.get("aan") else None
+        if cfg_e.get("aan") and self.pauze_sinds is not None and nu >= self.pauze_sinds:
+            # muziek op pauze: rustig en gedimd tot hij verder gaat
+            st = {"sectie": "pauze", "kick": 0.0, "e": 0.0, "niveau": 0.0, "opbouw": None, "drop_t": None,
+                  "extreem": False, "flits": False, "gat": False, "profiel": dict(profiel("rustig", None, contrast))}
+            st["profiel"]["dim"] *= 0.6
         self.lm = st
         dt = 0.0 if self.lm_t is None else clamp(nu - self.lm_t, 0.0, 0.5)
         self.lm_t = nu
@@ -1424,7 +1457,7 @@ class Engine:
         st = self.lm
         if not st:
             return None
-        return {"sectie": st["sectie"], "naam": SECTIES.get(st["sectie"], st["sectie"]),
+        return {"sectie": st["sectie"], "naam": SECTIES.get(st["sectie"], "Pauze" if st["sectie"] == "pauze" else st["sectie"]),
                 "opbouw": round(st["opbouw"], 2) if st["opbouw"] is not None else None,
                 "kick": st["kick"], "niveau": st["niveau"], "flits": st["flits"],
                 "drop_over": round(st["drop_t"] - nu, 1) if st["drop_t"] else None}
@@ -1446,6 +1479,7 @@ class Engine:
                 dongle=bool(ok),     # (oude naam, voor de telefoonpagina)
                 uitgangen={u["id"]: self.uitgang_status.get(u["id"], {"ok": False, "tekst": "uit" if not u["aan"] else "…"})
                            for u in uitg},
+                tijd=round(nu, 3),
                 bpm=self.data["show"]["bpm"], beat=round(self.beat(nu), 3),
                 smoke=nu < self.hold["smoke"] or "smoke" in self.hold_vast,
                 strobe=nu < self.hold["strobe"] or "strobe" in self.hold_vast,

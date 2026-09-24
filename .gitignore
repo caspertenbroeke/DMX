@@ -10,3 +10,4 @@ node_modules/
 /show.json
 /show.json.*
 .librespot/
+spotify-speaker/target/

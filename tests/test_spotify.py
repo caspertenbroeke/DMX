@@ -1,6 +1,5 @@
 import json
 import sys
-import threading
 import time
 import types
 
@@ -96,7 +95,7 @@ def test_foutmeldingen_in_gewone_woorden():
     log = ["[2026 WARN  librespot_discovery::server] Discovery server failed to start: Address in use (os error 98)",
            "[2026 ERROR librespot] Discovery is unavailable and no credentials provided."]
     assert spotify.foutmelding(log, 1).startswith("Kan niet als speaker op het netwerk verschijnen (Address in use")
-    assert spotify.foutmelding([], 3) == "librespot stopte (code 3)"
+    assert spotify.foutmelding([], 3) == "de speaker stopte (code 3)"
 
 
 def test_spotify_instellingen_worden_gecontroleerd():
@@ -109,32 +108,65 @@ def test_spotify_instellingen_worden_gecontroleerd():
     assert "spotify" not in e.export()
 
 
-NEP_LIBRESPOT = """#!{python}
-import json, os, sys, time
+NEP_SPEAKER = """#!{python}
+# Doet zich voor als dmxdesk-spotify: berichten [soort][lengte][inhoud] op stdout, commando's op stdin.
+import json, os, struct, sys, threading, time
+uit = sys.stdout.buffer
+lock = threading.Lock()
+toestand = {{"nummer": 1, "pauze": False}}
 open(os.environ["NEP_ARGS"], "w").write(json.dumps(sys.argv[1:]))
-sys.stderr.write("[2026-01-01T00:00:00Z INFO  librespot_core::session] Authenticated as 'test' !\\n")
-sys.stderr.write("[2026-01-01T00:00:01Z INFO  librespot_playback::player] Loading <Testnummer> with Spotify URI <spotify:track:1>\\n")
-sys.stderr.flush()
-sys.stdout.buffer.write(open(os.environ["NEP_GELUID"], "rb").read())
-sys.stdout.flush()
-time.sleep(60)
+
+def bericht(soort, inhoud=b""):
+    with lock:
+        uit.write(soort + struct.pack("<I", len(inhoud)) + inhoud)
+        uit.flush()
+
+def e(**kw):
+    bericht(b"E", json.dumps(kw).encode())
+
+def nummer(n):
+    e(t="laden", verzoek=n, id="spotify:track:%d" % n, pos=0)
+    e(t="nummer", id="spotify:track:%d" % n, naam="Nummer %d" % n, artiesten=["DJ Test"], album="A", hoes=None, duur=60000)
+    e(t="speelt", verzoek=n, id="spotify:track:%d" % n, pos=0)
+
+def commandos():
+    for regel in sys.stdin:
+        c = regel.split()
+        if c[0] == "pause":
+            toestand["pauze"] = True; e(t="pauze", verzoek=toestand["nummer"], id="x", pos=0)
+        elif c[0] == "play":
+            toestand["pauze"] = False; e(t="speelt", verzoek=toestand["nummer"], id="x", pos=0)
+        elif c[0] == "next":
+            with lock:
+                toestand["nummer"] += 1
+            nummer(toestand["nummer"])
+        elif c[0] == "volume":
+            e(t="volume", v=int(c[1]))
+    os._exit(0)          # stdin dicht: DMXDesk is weg
+
+e(t="klaar", naam="x", volume=100)
+e(t="verbonden", gebruiker="casper")
+nummer(1)
+threading.Thread(target=commandos, daemon=True).start()
+while True:
+    if toestand["pauze"]:
+        time.sleep(0.02); continue
+    waarde = 1000 * toestand["nummer"]          # nummer 1: 1000, nummer 2: 2000 (zo zie je wat er klinkt)
+    bericht(b"A", struct.pack("<h", waarde) * 2 * 2205)    # 50 ms stereo
+    time.sleep(0.001)                                          # (decoderen van het volgende stukje)
 """
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="nep-librespot is een script met #!")
-def test_spotify_speaker_met_nep_librespot(tmp_path, monkeypatch):
-    geluid = klikken(1.5)
-    (tmp_path / "geluid.raw").write_bytes(geluid)
-    nep = tmp_path / "librespot"
-    nep.write_text(NEP_LIBRESPOT.format(python=sys.executable))
+@pytest.mark.skipif(sys.platform == "win32", reason="nep-speaker is een script met #!")
+def test_speler_pauze_volgende_en_volume_werken_meteen(tmp_path, monkeypatch):
+    nep = tmp_path / "dmxdesk-spotify"
+    nep.write_text(NEP_SPEAKER.format(python=sys.executable))
     nep.chmod(0o755)
-    monkeypatch.setenv("DMXDESK_LIBRESPOT", str(nep))
+    monkeypatch.setenv("DMXDESK_SPEAKER", str(nep))
     monkeypatch.setenv("NEP_ARGS", str(tmp_path / "args.json"))
-    monkeypatch.setenv("NEP_GELUID", str(tmp_path / "geluid.raw"))
     monkeypatch.setattr(spotify.paden, "gebruikers_map", lambda: str(tmp_path))
 
-    gespeeld = bytearray()
-    klaar = threading.Event()
+    geschreven = []                                  # (tijd, eerste sample) van alles wat naar de luidspreker ging
 
     class NepStream:
         latency = 0.02
@@ -147,9 +179,7 @@ def test_spotify_speaker_met_nep_librespot(tmp_path, monkeypatch):
 
         def write(self, data):
             time.sleep(len(data) / BPS)
-            gespeeld.extend(data)
-            if len(gespeeld) >= len(geluid):
-                klaar.set()
+            geschreven.append((time.time(), int(np.frombuffer(data[:2], dtype="<i2")[0])))
 
         def stop(self):
             pass
@@ -163,24 +193,53 @@ def test_spotify_speaker_met_nep_librespot(tmp_path, monkeypatch):
         query_devices=lambda i=None: apparaat if i is not None else [apparaat],
         default=types.SimpleNamespace(device=(0, 0))))
 
+    def wacht(voorwaarde, sec=8):
+        eind = time.time() + sec
+        while time.time() < eind:
+            if voorwaarde():
+                return True
+            time.sleep(0.02)
+        return False
+
     e = Engine(None)
-    e.data["spotify"].update(aan=True, naam="Test Wagen", voorsprong=0.5)
+    e.data["spotify"].update(aan=True, naam="Test Wagen", voorsprong=3.0)
     sp = spotify.SpotifySpeaker(e)
     assert spotify.uitvoer_apparaten() == [{"naam": "Luidspreker (Nep)", "standaard": True}]
     sp.bijwerken()
     try:
-        assert klaar.wait(15), "het geluid kwam niet (helemaal) uit de luidspreker"
-        assert bytes(gespeeld[:len(geluid)]) == geluid
-        st = e.extra_status["spotify"]
-        assert st["verbonden"] and st["nummer"] == "Testnummer" and st["aan"] and st["beschikbaar"]
+        st = lambda: e.extra_status["spotify"]
+        assert wacht(lambda: st()["speler"]["naam"] == "Nummer 1" and len(geschreven) > 5)
+        assert st()["verbonden"] and st()["speler"]["artiesten"] == ["DJ Test"] and st()["speler"]["speelt"]
         args = json.loads((tmp_path / "args.json").read_text())
         assert args[args.index("--name") + 1] == "Test Wagen"
-        assert args[args.index("--backend") + 1] == "pipe"
-        assert "connect" in e.luister                   # de analyse is bij de lichtshow aangekomen
+        assert wacht(lambda: sp.doorgever.in_rij > 2 * bl.Doorgever.BPS)     # voorsprong opgebouwd (3 s rij)
+
+        # pauze: meteen stil (niet pas na 3 s), en de show weet het
+        sp.commando("pause")
+        assert wacht(lambda: e.pauze_sinds is not None, 2)
+        t_pauze = time.time()
+        time.sleep(0.4)
+        assert not [t for t, _ in geschreven if t > t_pauze + 0.15]
+        assert not st()["speler"]["speelt"]
+        sp.commando("play")
+        assert wacht(lambda: [t for t, _ in geschreven if t > t_pauze + 0.4], 2)
+        assert e.pauze_sinds is None
+
+        # volgende: het nieuwe nummer is meteen te horen (de wachtrij met 3 s van het oude gaat weg)
+        t_volgende = time.time()
+        sp.commando("next")
+        assert wacht(lambda: any(w == 2000 for _, w in geschreven[-3:]), 2)
+        assert time.time() - t_volgende < 1.0
+        assert wacht(lambda: st()["speler"]["naam"] == "Nummer 2", 2)
+
+        # volume: meteen zachter (derde macht: 50% = 1/8)
+        sp.commando("volume", 50)
+        assert wacht(lambda: geschreven[-1][1] == int(2000 * spotify.versterking(50)), 2)
+        assert st()["speler"]["volume"] == 50
         proc = sp.proc
     finally:
         sp.stop()
-    assert proc.poll() is not None                      # librespot is gestopt
+    assert proc.poll() is not None                      # de speaker is gestopt (invoer dicht)
     assert not e.extra_status["spotify"]["aan"]
 
 

@@ -39,8 +39,9 @@ function spotify() {
          <span class="waarde">${cfg.voorsprong} s</span></div>
        <p class="hint">Open Spotify op je telefoon of computer (zelfde wifi), tik op het speaker-icoon en kies <b>${esc(cfg.naam)}</b>,
          net als bij Sonos. DMXDesk hoort de muziek eerst en speelt hem <b>${cfg.voorsprong} seconden later</b> af: zo weet de lichtshow vooraf
-         waar elke beat en drop valt en bouwt hij op naar de drop. Spotify Premium is nodig (geldt voor elke Spotify-speaker).
-         ${S.systeem.platform === 'win32' ? 'Windows vraagt de eerste keer of <b>librespot</b> het netwerk mag gebruiken: kies <b>Toestaan</b> (privé-netwerk).' : ''}</p>`;
+         waar elke beat en drop valt en bouwt hij op naar de drop. Pauze, volgende nummer en volume werken toch meteen,
+         in Spotify én met de speler onderin (of op je telefoon: tabblad Muziek). Spotify Premium is nodig (geldt voor elke Spotify-speaker).
+         ${S.systeem.platform === 'win32' ? 'Windows vraagt de eerste keer of <b>dmxdesk-spotify</b> het netwerk mag gebruiken: kies <b>Toestaan</b> (privé-netwerk).' : ''}</p>`;
 }
 
 async function laadApparaten() {

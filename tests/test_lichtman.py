@@ -133,3 +133,22 @@ def test_lagen_eigen_patronen():
     assert frame[bar["adres"] - 1] > 0                                  # de LED-bar volgt 'alle lampen': aan
     e.wijzig_show({"lagen": {"Pars": None}})
     assert "Pars" not in e.data["show"]["lagen"]
+
+
+def test_pauze_schuift_alles_mee_en_ander_nummer_vergeet():
+    e = Engine(None)
+    nu = time.time()
+    v = e.data["show"]["beat"]["vertraging_connect"] / 1000.0
+    e.beat_bericht({"soort": "energie", "bron": "connect", "t": nu + 5, "kt": nu + 5, "kick": 1.0, "e": 0.9})
+    e.beat_bericht({"soort": "drop", "bron": "connect", "t": nu + 6})
+    t0 = e.bpm_t0
+    e.muziek_pauze(nu - 2.0)                      # 2 s geleden op pauze gezet
+    e.render(nu)
+    assert e.lm["sectie"] == "pauze"
+    e.muziek_hervat()
+    assert e.pauze_sinds is None
+    assert abs(e.bpm_t0 - t0 - 2.0) < 0.1          # de maat schuift mee
+    assert abs(e.lichtman.drops[-1] - (nu + 6 + v + 2.0)) < 0.1
+    assert abs(e.lichtman.punten[-1][0] - (nu + 5 + v + 2.0)) < 0.1
+    e.muziek_vergeet(time.time())                 # volgende nummer: de oude toekomst geldt niet meer
+    assert not e.lichtman.drops and not e.lichtman.punten

@@ -1,4 +1,4 @@
-DMXDesk levert librespot mee (de Spotify-speaker, https://github.com/librespot-org/librespot).
+De Spotify-speaker van DMXDesk (dmxdesk-spotify) is gebouwd met librespot (https://github.com/librespot-org/librespot).
 librespot valt onder de volgende licentie:
 
 The MIT License (MIT)

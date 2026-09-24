@@ -8,11 +8,11 @@ IS_MAC, IS_WIN = sys.platform == "darwin", sys.platform == "win32"
 ICOON = os.path.join(SPECPATH, "icoon.ico" if IS_WIN else "icoon.png")
 
 datas = [(os.path.join(PKG, "web"), "dmxdesk/web"), (os.path.join(PKG, "data"), "dmxdesk/data")]
-# Spotify-speaker: librespot (gebouwd met: cargo install librespot --root .librespot, zie de workflow)
-LIBRESPOT = os.environ.get("DMXDESK_LIBRESPOT_BOUW") or os.path.join(
-    ROOT, ".librespot", "bin", "librespot.exe" if IS_WIN else "librespot")
-binaries = [(LIBRESPOT, "dmxdesk/bin")] if os.path.isfile(LIBRESPOT) else []
-print("librespot:", LIBRESPOT if binaries else "NIET gevonden - de app wordt gebouwd zonder Spotify-speaker")
+# Spotify-speaker: dmxdesk-spotify (map spotify-speaker/, bouwen met: cargo build --release --locked)
+SPEAKER = os.environ.get("DMXDESK_SPEAKER_BOUW") or os.path.join(
+    ROOT, "spotify-speaker", "target", "release", "dmxdesk-spotify.exe" if IS_WIN else "dmxdesk-spotify")
+binaries = [(SPEAKER, "dmxdesk/bin")] if os.path.isfile(SPEAKER) else []
+print("Spotify-speaker:", SPEAKER if binaries else "NIET gevonden - de app wordt gebouwd zonder Spotify-speaker")
 verborgen = ["serial.tools.list_ports", "mido.backends.rtmidi", "qrcode.image.svg"]
 
 a = Analysis(

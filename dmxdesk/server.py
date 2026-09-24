@@ -358,6 +358,10 @@ class Handler(BaseHTTPRequestHandler):
                 e.gewijzigd()
             if a.spotify:
                 a.spotify.bijwerken()
+        elif pad == "/api/speler":
+            if not a.spotify:
+                raise ValueError("Geen Spotify-speaker")
+            a.spotify.commando(body.get("actie"), body.get("waarde"))
         elif pad == "/api/midi":
             with e.lock:
                 if "apparaat" in body:

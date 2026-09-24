@@ -49,6 +49,18 @@
   .voet a { color: #aaa; padding: 6px 0; }
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #d33; margin-right: 6px; }
   .dot.ok { background: #3c3; }
+  .muziek { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; }
+  .muziek .hoes { width: min(62vw, 300px); aspect-ratio: 1; border-radius: 14px; background: #151518 center / cover no-repeat; }
+  .muziek h2 { margin: 0; font-size: 22px; } .muziek p { margin: 0; color: #999; }
+  .muziek .balk { width: 100%; height: 5px; background: #2a2a30; border-radius: 3px; overflow: hidden; }
+  .muziek .balk i { display: block; height: 100%; width: 0; background: #fff; }
+  .muziek .tijden { width: 100%; display: flex; justify-content: space-between; color: #888; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .muziek .bed { display: flex; gap: 18px; align-items: center; }
+  .muziek .bed button { width: 64px; height: 64px; border-radius: 50%; border: 1px solid #2a2a30; background: #151518; color: #fff; font-size: 24px; }
+  .muziek .bed button.groot { width: 84px; height: 84px; background: #ffc400; color: #000; border-color: #ffc400; font-size: 32px; }
+  .muziek .vol { width: 100%; display: flex; align-items: center; gap: 10px; color: #888; }
+  .muziek .vol input { flex: 1; accent-color: #ffc400; height: 36px; }
+  .muziek .sectie { font-weight: 800; letter-spacing: 1px; color: #ffc400; font-size: 13px; }
   .pin { position: fixed; inset: 0; background: #000; display: flex; align-items: center; justify-content: center; z-index: 5; }
   .pin form { width: min(320px, 90vw); text-align: center; }
   .pin input { width: 100%; box-sizing: border-box; font-size: 32px; letter-spacing: 10px; text-align: center; padding: 12px;
@@ -57,7 +69,7 @@
 </style>
 </head>
 <body>
-  <div class="kop"><button data-scherm="knoppen" class="aan">KNOPPEN</button><button data-scherm="scenes">SCÈNES</button></div>
+  <div class="kop"><button data-scherm="knoppen" class="aan">KNOPPEN</button><button data-scherm="scenes">SCÈNES</button><button data-scherm="muziek" id="muziekKnop" hidden>MUZIEK</button></div>
 
   <div class="scherm aan" id="knoppen">
     <div class="knop" id="smoke" data-houd="smoke">SMOKE</div>
@@ -70,6 +82,17 @@
     <div class="scenes" id="sceneLijst"><div class="leeg">Laden…</div></div>
     <div class="snel"><button id="los">SCÈNE LOS</button><button id="auto">AUTO-SHOW</button></div>
     <div class="master">MASTER <input type="range" min="0" max="100" id="master"><span id="masterW">–</span></div>
+  </div>
+
+  <div class="scherm" id="muziek">
+    <div class="muziek">
+      <div class="hoes" id="mHoes"></div>
+      <div><h2 id="mNaam">–</h2><p id="mArtiest"></p></div>
+      <div class="balk"><i id="mBalk"></i></div>
+      <div class="tijden"><span id="mPos">0:00</span><span class="sectie" id="mSectie"></span><span id="mDuur">0:00</span></div>
+      <div class="bed"><button id="mVorige">⏮</button><button id="mPlay" class="groot">▶</button><button id="mVolgende">⏭</button></div>
+      <div class="vol">🔈<input type="range" min="0" max="100" id="mVolume">🔊</div>
+    </div>
   </div>
 
   <div class="voet">
@@ -161,12 +184,50 @@
         const s = await fetch('/api/state?deel=licht'); if (s.ok) scenes = await s.json();
       }
       tekenScenes();
+      tekenMuziek();
     } catch (e) {
       dot.classList.remove('ok');
       tekst.textContent = 'geen verbinding met DMXDesk';
     }
   }
   ververs(); setInterval(() => { if (!document.hidden) ververs(); }, 1000);
+
+  // muziek (Spotify-speaker): wat er speelt, vorige / pauze / volgende en volume
+  const tijd = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+  let volumeBezig = 0, klok = 0;
+  function tekenMuziek() {
+    const st = status && status.spotify, sp = st && st.speler;
+    document.getElementById('muziekKnop').hidden = !(st && st.aan);
+    if (!sp) return;
+    klok = status.tijd - Date.now() / 1000;
+    document.getElementById('mNaam').textContent = sp.naam || (st.verbonden ? 'Kies een nummer in Spotify' : 'Kies "' + st.naam + '" in Spotify');
+    document.getElementById('mArtiest').textContent = (sp.artiesten || []).join(', ');
+    const hoes = document.getElementById('mHoes');
+    if (hoes.dataset.url !== (sp.hoes || '')) { hoes.dataset.url = sp.hoes || ''; hoes.style.backgroundImage = sp.hoes ? `url("${sp.hoes}")` : ''; }
+    document.getElementById('mPlay').textContent = sp.speelt ? '⏸' : '▶';
+    if (Date.now() - volumeBezig > 1500) document.getElementById('mVolume').value = sp.volume;
+    const lm = status.lichtman;
+    document.getElementById('mSectie').textContent = lm ? (lm.flits ? '💥 DROP' : lm.naam.toUpperCase()) : '';
+  }
+  setInterval(() => {
+    const sp = status && status.spotify && status.spotify.speler; if (!sp || !sp.duur) return;
+    const pos = Math.min(sp.duur, sp.pos + (sp.speelt ? (Date.now() / 1000 + klok - sp.pos_t) * 1000 : 0));
+    document.getElementById('mPos').textContent = tijd(pos); document.getElementById('mDuur').textContent = tijd(sp.duur);
+    document.getElementById('mBalk').style.width = (pos / sp.duur * 100) + '%';
+  }, 250);
+  const speler = (actie, waarde) => post('/api/speler', waarde === undefined ? { actie } : { actie, waarde }).then(ververs);
+  document.getElementById('mVorige').onclick = () => speler('prev');
+  document.getElementById('mVolgende').onclick = () => speler('next');
+  document.getElementById('mPlay').onclick = () => {
+    const sp = status && status.spotify && status.spotify.speler;
+    speler(sp && sp.speelt ? 'pause' : 'play');
+  };
+  let volTimer = 0;
+  document.getElementById('mVolume').oninput = e => {
+    volumeBezig = Date.now(); const nu = Date.now();
+    if (nu - volTimer > 120) { volTimer = nu; post('/api/speler', { actie: 'volume', waarde: Number(e.target.value) }); }
+  };
+  document.getElementById('mVolume').onchange = e => post('/api/speler', { actie: 'volume', waarde: Number(e.target.value) });
 
   function pin() {
     if (document.querySelector('.pin')) return;

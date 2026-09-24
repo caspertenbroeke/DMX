@@ -105,6 +105,20 @@ class Lichtman:
             return False
         return any(kk >= KICK_AAN and t - 120.0 <= tt <= t for tt, kk, _ in self.punten)   # dansnummer?
 
+    def verschuif(self, van, duur):
+        """Pauze van `duur` s vanaf `van`: alles wat daarna zou klinken, klinkt nu zoveel later."""
+        self.punten = deque(((t + duur if t >= van else t), k, e) for t, k, e in self.punten)
+        self.punten = deque(sorted(self.punten), maxlen=1800)
+        self.drops = deque((d + duur if d >= van else d for d in self.drops), maxlen=32)
+        if self.opbouw_van is not None and self.opbouw_van >= van:
+            self.opbouw_van += duur
+        if self.opbouw_drop is not None and self.opbouw_drop >= van:
+            self.opbouw_drop += duur
+        if self.geen_kick_sinds is not None:
+            self.geen_kick_sinds += duur
+        self.laatste_kick += duur
+        self._t = None
+
     # ------------------------------------------------------------ hulp
     def _gemiddeld(self, van, tot):
         k = e = 0.0

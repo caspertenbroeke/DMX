@@ -284,3 +284,29 @@ tr.gekozen td { background: rgba(255, 196, 0, .06); }
 .chip.lm-groove { color: var(--accent); border-color: #ffc40055; }
 .chip.lm-opbouw { color: #ff9a3c; border-color: #ff9a3c88; }
 .chip.lm-drop { color: #fff; background: #ff4d6d; border-color: #ff4d6d; }
+
+/* speler (Spotify-speaker) onderin */
+#speler { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: grid; align-items: center; gap: 14px;
+  grid-template-columns: 52px minmax(120px, 1.2fr) auto minmax(160px, 2fr) minmax(110px, 160px);
+  padding: 8px 16px; background: var(--vlak); border-top: 1px solid var(--rand); box-shadow: 0 -6px 20px #0008; }
+#speler[hidden] { display: none; }
+body.met-speler #inhoud { padding-bottom: 88px; }
+#speler .hoes { width: 52px; height: 52px; border-radius: 6px; background: var(--vlak3) center / cover no-repeat; }
+#speler .titel { min-width: 0; display: flex; flex-direction: column; }
+#speler .titel b, #speler .titel small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#speler .titel small { color: var(--zacht); }
+#speler .knoppen-speler { display: flex; gap: 6px; align-items: center; }
+#speler .knoppen-speler button { width: 40px; height: 40px; border-radius: 50%; padding: 0; font-size: 16px; }
+#speler .knoppen-speler button.groot { width: 48px; height: 48px; background: var(--accent); color: var(--accent-tekst);
+  border-color: var(--accent); font-size: 18px; }
+#speler .voortgang { display: flex; align-items: center; gap: 8px; color: var(--zacht); font-variant-numeric: tabular-nums; }
+#speler .voortgang .balk { flex: 1; height: 5px; border-radius: 3px; background: var(--vlak3); overflow: hidden; }
+#speler .voortgang .balk i { display: block; height: 100%; width: 0; background: var(--tekst); }
+#speler .volume { display: flex; align-items: center; gap: 6px; }
+#speler .volume input { flex: 1; min-width: 60px; }
+@media (max-width: 760px) {
+  #speler { grid-template-columns: 44px 1fr auto; padding: 6px 10px; gap: 10px; }
+  #speler .hoes { width: 44px; height: 44px; }
+  #speler .voortgang, #speler .volume { display: none; }
+}
+body.met-speler #menu { bottom: 68px; }

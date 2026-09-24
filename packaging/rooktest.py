@@ -51,17 +51,17 @@ def spotify_speaker(poort):
           "- status:", st)
 
 
-def librespot_over():
-    """Draait er nog een librespot (de Spotify-speaker) nadat DMXDesk gestopt is? Dat mag niet (na ~5 s)."""
+def speaker_over():
+    """Draait de Spotify-speaker (dmxdesk-spotify) nog nadat DMXDesk gestopt is? Dat mag niet (na ~5 s)."""
     for _ in range(8):
         time.sleep(1)
         try:
             if sys.platform == "win32":
-                uit = subprocess.run(["tasklist", "/FI", "IMAGENAME eq librespot.exe", "/NH"],
+                uit = subprocess.run(["tasklist", "/FI", "IMAGENAME eq dmxdesk-spotify.exe", "/NH"],
                                      capture_output=True, text=True).stdout
-                over = "librespot" in uit.lower()
+                over = "dmxdesk-spotify" in uit.lower()
             else:
-                over = subprocess.run(["pgrep", "-x", "librespot"], capture_output=True).returncode == 0
+                over = subprocess.run(["pgrep", "-f", "bin/dmxdesk-spotify"], capture_output=True).returncode == 0
         except OSError:
             return False
         if not over:
@@ -110,8 +110,8 @@ def zonder_venster():
         print("---- uitvoer van de app ----\n" + log.read())
     if not ok:
         sys.exit("De app startte niet of antwoordde niet (zie hierboven).")
-    if librespot_over():
-        sys.exit("De Spotify-speaker (librespot) draait nog nadat DMXDesk stopte.")
+    if speaker_over():
+        sys.exit("De Spotify-speaker (dmxdesk-spotify) draait nog nadat DMXDesk stopte.")
 
 
 def met_venster():
@@ -134,8 +134,8 @@ def met_venster():
     print("---- logbestand ----\n" + log)
     if not ok:
         sys.exit("De app startte niet of antwoordde niet (zie het logbestand hierboven).")
-    if librespot_over():
-        sys.exit("De Spotify-speaker (librespot) draait nog nadat DMXDesk stopte.")
+    if speaker_over():
+        sys.exit("De Spotify-speaker (dmxdesk-spotify) draait nog nadat DMXDesk stopte.")
     if "App-venster wordt geopend" in log and "mislukt" not in log and nog_bezig:
         print("Venstertest OK: de app draait met een eigen venster.")
     else:

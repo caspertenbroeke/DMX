@@ -33,6 +33,15 @@
 </header>
 <nav id="menu"></nav>
 <main id="inhoud"><div class="laden">DMXDesk laden…</div></main>
+<footer id="speler" hidden>
+  <div class="hoes" id="spHoes"></div>
+  <div class="titel"><b id="spNaam">–</b><small id="spArtiest"></small></div>
+  <div class="knoppen-speler">
+    <button id="spVorige" title="Vorige">⏮</button><button id="spPlay" class="groot" title="Afspelen / pauze">⏯</button><button id="spVolgende" title="Volgende">⏭</button>
+  </div>
+  <div class="voortgang"><small id="spPos">0:00</small><div class="balk"><i id="spBalk"></i></div><small id="spDuur">0:00</small></div>
+  <label class="volume" title="Volume">🔊<input type="range" min="0" max="100" id="spVolume"></label>
+</footer>
 <div id="verbinding" hidden>Geen verbinding met DMXDesk… opnieuw proberen</div>
 <div id="toasts"></div>
 <script type="module" src="/static/js/main.js"></script>

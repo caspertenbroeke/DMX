@@ -479,9 +479,14 @@ class Doorgever:
 
     BPS = SR * FRAME_BYTES      # bytes per seconde
 
-    def __init__(self, analyse, uitgang, voorsprong=0.0, melding=None):
-        """melding: functie die aangeroepen wordt als 'speelt' of 'fout' verandert (voor een statusscherm)."""
+    def __init__(self, analyse, uitgang, voorsprong=0.0, melding=None, reset_na_gat=True):
+        """melding: functie die aangeroepen wordt als 'speelt' of 'fout' verandert (voor een statusscherm).
+        reset_na_gat: na een pauze in de aanvoer opnieuw beginnen met luisteren (raspotify/MPD: dan is het
+        vaak een ander nummer). De eigen Spotify-speaker meldt zelf wanneer er echt iets nieuws komt."""
         self.a, self.uitgang, self.melding = analyse, uitgang, melding
+        self.reset_na_gat = reset_na_gat
+        self.gepauzeerd = False
+        self.gespeeld = 0            # bytes die al naar de geluidskaart zijn gegaan
         self.voorsprong = max(0.0, float(voorsprong))
         self.max_bytes = max(8192, int(self.voorsprong * self.BPS))
         self.rij = deque()
@@ -508,7 +513,7 @@ class Doorgever:
                 if not data:
                     break
                 nu = time.time()
-                if nu - laatste > 0.6:          # na een pauze: opnieuw beginnen met luisteren
+                if nu - laatste > 0.6 and self.reset_na_gat:   # na een pauze: opnieuw beginnen met luisteren
                     self.a.reset()
                 laatste = nu
                 data = rest + data
@@ -517,7 +522,8 @@ class Doorgever:
                 if not data:
                     continue
                 with self.cond:
-                    while self.in_rij >= self.max_bytes and not self.stoppen.is_set():
+                    # (tijdens een pauze niet wachten: anders kan het 'verder spelen'-bericht niet gelezen worden)
+                    while self.in_rij >= self.max_bytes and not self.stoppen.is_set() and not self.gepauzeerd:
                         self.cond.wait(0.1)
                     self.rij.append(data)
                     self.in_rij += len(data)
@@ -532,20 +538,49 @@ class Doorgever:
                 self.klaar = True
                 self.cond.notify_all()
 
+    # ---- bediening (vanuit de draad die lees() doet, of van buitenaf)
+    def pauzeer(self):
+        """Meteen stil (de rij blijft bewaard). Geeft het moment terug waarop het geluid stopte."""
+        with self.cond:
+            self.gepauzeerd = True
+            self.cond.notify_all()
+        return time.time() + self.bezig / self.BPS
+
+    def hervat(self):
+        with self.cond:
+            self.gepauzeerd = False
+            self.cond.notify_all()
+
+    def leeg(self):
+        """Alles wat nog in de rij staat weggooien (volgende nummer, spoelen): het nieuwe is meteen te horen."""
+        with self.cond:
+            self.rij.clear()
+            self.in_rij = 0
+            self.cond.notify_all()
+
+    def markeer(self, functie):
+        """functie() wordt aangeroepen op het moment dat alles wat nu in de rij staat gespeeld is."""
+        with self.cond:
+            self.rij.append(functie)
+            self.cond.notify_all()
+
     def speel(self):
         """Speelt de rij af; geeft de geluidskaart vrij als er even niets is."""
         open_, leeg_sinds, niet_voor = False, None, 0.0
         while not self.stoppen.is_set():
             with self.cond:
-                if not self.rij:
-                    if self.klaar:
+                if not self.rij or self.gepauzeerd:
+                    if self.klaar and not self.rij:
                         break
                     self.cond.wait(0.25)
-                data = self.rij.popleft() if self.rij else None
-                if data is not None:
+                data = self.rij.popleft() if self.rij and not self.gepauzeerd else None
+                if data is not None and not callable(data):
                     self.in_rij -= len(data)
                     self.bezig = len(data)
                     self.cond.notify_all()
+            if callable(data):
+                data()
+                continue
             nu = time.time()
             if data is None:
                 leeg_sinds = leeg_sinds or nu
@@ -573,6 +608,7 @@ class Doorgever:
                     open_, niet_voor = False, time.time() + 0.3     # geluidskaart bezet: straks opnieuw
             if not geschreven:
                 time.sleep(len(data) / self.BPS)               # zelf het tempo bewaken
+            self.gespeeld += len(data)
             self.bezig = 0
         if open_:
             self.uitgang.stop()
