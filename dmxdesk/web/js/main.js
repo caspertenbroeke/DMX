@@ -116,6 +116,8 @@ document.addEventListener('keydown', e => {
   else if (k === 'b') doe('/api/actie', { soort: 'blackout' });
   else if (k === 'f') doe('/api/actie', { soort: 'freeze' });
   else if (k === 'a') doe('/api/actie', { soort: 'auto' });
+  else if (k === 'o') doe('/api/lichtman', { actie: 'opbouw' });
+  else if (k === 'd') doe('/api/lichtman', { actie: 'drop' });
   else if (k === 'escape') doe('/api/actie', { soort: 'scene_los' });
   else if (k === 'arrowright' && K.L.s && K.L.s.cue) doe('/api/cue', { actie: 'volgende' });
   else if (k === 'arrowleft' && K.L.s && K.L.s.cue) doe('/api/cue', { actie: 'vorige' });

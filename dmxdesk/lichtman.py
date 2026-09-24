@@ -17,6 +17,7 @@ Secties (wat de lichtman ervan maakt):
 
 BPM alleen zegt dus weinig: een rustig nummer op 150 BPM blijft rustig, hardstyle op 150 BPM gaat los.
 """
+import math
 from collections import deque
 
 SECTIES = {"rustig": "Rustig", "break": "Break", "opbouw": "Opbouw", "groove": "Groove", "druk": "Druk",
@@ -42,6 +43,7 @@ BLIJF = 3.0              # s: minstens zo lang op een niveau (geen heen-en-weer)
 NEUTRAAL = dict(stap=1.0, kleur_stap=1.0, zacht=0.0, dim=1.0, bew_snel=1.0, bew_groot=1.0, punch=0.0, adem=0.0)
 
 KICK_AAN, KICK_UIT = 0.55, 0.30
+DROP_STIL = 8.0          # s: zo lang moet de kick weg zijn geweest voor zijn terugkomst een drop is
 OPBOUW_LANG = 16.0       # s: zo lang voor een (bekende) drop mag de opbouw al beginnen
 NA_DROP = 8.0            # s: zo lang na een drop blijft het sowieso vol gas
 FLITS = 0.45             # s: witte flits op het moment van de drop
@@ -84,6 +86,8 @@ class Lichtman:
         self.opbouw_p = 0.0                # hoe ver de opbouw nu is (gaat alleen omhoog)
         self.stijgt = False
         self.nummer_start = -1e9           # begin van het huidige nummer (drops tellen, 'hard' bepalen)
+        self.hand_opbouw = None            # knop OPBOUW ingedrukt: sinds wanneer (tot DROP)
+        self.geleerd = []                  # (begin opbouw, drop) die voor dit nummer geleerd zijn
         self._t, self._basis = None, None
 
     # ------------------------------------------------------------ invoer
@@ -102,8 +106,42 @@ class Lichtman:
         self.nummer_start = t
         self._t = None
 
-    def drop(self, t):
+    # ------------------------------------------------------------ knoppen en geleerde momenten
+    def knop_opbouw(self, nu):
+        """OPBOUW: vanaf nu opbouwen tot DROP (nog een keer drukken = weer uit)."""
+        self.hand_opbouw = None if self.hand_opbouw is not None else nu
+        self._t = None
+
+    def knop_drop(self, nu):
+        """DROP: nu is de drop (flits, en dan vol gas)."""
+        self.hand_opbouw = None
+        self.drops = deque([d for d in self.drops if abs(d - nu) >= 2.0], maxlen=32)
+        self.drops.append(nu)
+        self._t = None
+
+    def leer(self, momenten):
+        """Geleerde momenten voor het nummer dat nu klinkt: [(begin opbouw of None, drop), ...] in echte tijd."""
+        for begin, d in momenten:
+            if not any(abs(d - x) < 2.0 for x in self.drops):
+                self.drops.append(d)
+            if begin is not None and begin < d:
+                self.geleerd.append((begin, d))
+        self._t = None
+
+    def vergeet_geleerd(self, nu):
+        self.geleerd = []
+        self.drops = deque([d for d in self.drops if d <= nu], maxlen=32)
+        self._t = None
+
+    def drop(self, t, stil=None):
+        """De kick komt terug op t, na `stil` seconden zonder. Alleen na een echte breakdown/opbouw is dat een drop
+        (en dan controleren we zelf ook nog of de kick er echt zo lang uit was)."""
         t = float(t)
+        if stil is not None and float(stil) < DROP_STIL:
+            return
+        kick, _ = self._gemiddeld(t - DROP_STIL, t - 0.8)
+        if kick is not None and kick >= KICK_UIT:
+            return                          # er zat toch kick in: geen drop
         if not any(abs(t - d) < 2.0 for d in self.drops):
             self.drops.append(t)
 
@@ -113,6 +151,7 @@ class Lichtman:
             self.punten.pop()
         for d in [d for d in self.drops if d >= t]:
             self.drops.remove(d)
+        self.geleerd = [(b, d) for b, d in self.geleerd if d < t]
         self._t = None
 
     def tempo_vasthouden(self, t):
@@ -129,6 +168,9 @@ class Lichtman:
                             maxlen=1800)
         if self.nummer_start >= van:
             self.nummer_start += duur
+        self.geleerd = [((b + duur) if b >= van else b, (d + duur) if d >= van else d) for b, d in self.geleerd]
+        if self.hand_opbouw is not None and self.hand_opbouw >= van:
+            self.hand_opbouw += duur
         self.drops = deque((d + duur if d >= van else d for d in self.drops), maxlen=32)
         if self.opbouw_van is not None and self.opbouw_van >= van:
             self.opbouw_van += duur
@@ -201,8 +243,13 @@ class Lichtman:
         if kick is None:
             laatste = self.punten[-1] if self.punten else None
             if laatste is None or nu - laatste[0] > 4.0 or laatste[0] > nu:
-                return None                 # hoort (nu) niets
-            kick, e, score = laatste[1], laatste[2], 0.4 * laatste[3] + 0.6 * laatste[4]
+                d = self._laatste_drop(nu)
+                geleerd_nu = any(b <= nu < dd for b, dd in self.geleerd)
+                if self.hand_opbouw is None and not geleerd_nu and not (d is not None and 0 <= nu - d < NA_DROP):
+                    return None             # hoort (nu) niets en er is niet op een knop gedrukt
+                kick, e, score = 0.0, 0.5, 0.5      # knoppen werken ook zonder muziek-analyse
+            else:
+                kick, e, score = laatste[1], laatste[2], 0.4 * laatste[3] + 0.6 * laatste[4]
         _, _, score_lang = self._gemiddeld(tot - 3.0, tot, met_score=True)   # iets rustiger voor de niveaus
         in_kick = self.sectie in KICK_NIVEAUS
         heeft_kick = kick >= (KICK_UIT if in_kick else KICK_AAN)
@@ -214,7 +261,15 @@ class Lichtman:
         vorige = self._laatste_drop(nu)
         hard = self._hard(nu)
         opbouw = None
-        if vorige is not None and 0 <= nu - vorige < NA_DROP:
+        geleerd = next(((b, d) for b, d in self.geleerd if b <= nu < d), None)
+        if self.hand_opbouw is not None:
+            # knop OPBOUW: steeds verder (na ~6 s op 63%, ~12 s 86%), tot iemand DROP drukt
+            sectie, opbouw = "opbouw", _clamp(1.0 - math.exp(-(nu - self.hand_opbouw) / 6.0), 0.0, 0.97)
+        elif geleerd is not None:
+            b, d = geleerd                    # geleerd voor dit nummer: precies van het begin tot de drop
+            sectie, opbouw = "opbouw", _clamp((nu - b) / max(0.5, d - b))
+            self.opbouw_van, self.opbouw_drop = b, d
+        elif vorige is not None and 0 <= nu - vorige < NA_DROP:
             # net gedropt: vol gas (of extreem), ook als de kick-meting nog moet volgen
             sectie = "extreem" if (hard and self.sectie == "extreem") else "drop"
             if hard and self.drops_in_nummer(nu) >= 2:
@@ -253,7 +308,7 @@ class Lichtman:
             self.sectie, self.sinds = sectie, nu
         return {"sectie": sectie, "kick": round(kick, 2), "e": round(e, 2), "niveau": round(niveau, 2),
                 "opbouw": opbouw, "drop_t": volgende if volgende is not None and volgende > nu else None,
-                "extreem": sectie == "extreem", "hard": hard}
+                "extreem": sectie == "extreem", "hard": hard, "hand": self.hand_opbouw is not None}
 
     def _stijging(self, nu):
         """Hoeveel de energie de laatste ~6 s gestegen is (opbouw zonder dat de drop al te zien is)."""
@@ -272,7 +327,9 @@ class Lichtman:
         if b is None:
             return None
         st = dict(b)
-        if st["sectie"] == "opbouw" and st["drop_t"] is not None and self.opbouw_van is not None:
+        if st["sectie"] == "opbouw" and self.hand_opbouw is not None:
+            st["opbouw"] = _clamp(1.0 - math.exp(-(nu - self.hand_opbouw) / 6.0), 0.0, 0.97)
+        elif st["sectie"] == "opbouw" and st["drop_t"] is not None and self.opbouw_van is not None:
             st["opbouw"] = _clamp((nu - self.opbouw_van) / max(0.5, st["drop_t"] - self.opbouw_van))
             self.opbouw_p = st["opbouw"]
         vorige = self._laatste_drop(nu)

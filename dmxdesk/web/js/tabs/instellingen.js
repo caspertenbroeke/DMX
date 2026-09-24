@@ -6,11 +6,12 @@ const ACTIES = [
   ['scene', 'Scène laden', 'scene'], ['scene_los', 'Scène loslaten'], ['cue', 'Cuelijst start/stop', 'cue'],
   ['cue_volgende', 'Cue volgende'], ['cue_vorige', 'Cue vorige'], ['hold', 'Vasthouden', 'hold'], ['blackout', 'Blackout aan/uit'],
   ['freeze', 'Freeze aan/uit'], ['auto', 'Auto-show aan/uit'], ['tap', 'Tap tempo'], ['tempo', 'Tempo-factor', 'tempo'],
+  ['opbouw', 'OPBOUW aan/uit (tot DROP)'], ['drop', 'DROP'],
   ['master', 'Master (fader)'], ['groep', 'Groep (fader)', 'groep'], ['fader', 'Macro-fader', 'fader'],
 ];
 const TOETSEN = [['Spatie', 'Tap tempo'], ['B', 'Blackout aan/uit'], ['F', 'Freeze (effecten stilzetten)'], ['A', 'Auto-show aan/uit'],
   ['S (vasthouden)', 'Strobe'], ['R (vasthouden)', 'Rook'], ['W (vasthouden)', 'Blinder (alles wit)'], ['1 … 9, 0', 'Scène 1 t/m 10'],
-  ['Esc', 'Scène loslaten'], ['← / →', 'Vorige / volgende cue']];
+  ['Esc', 'Scène loslaten'], ['← / →', 'Vorige / volgende cue'], ['O', 'OPBOUW aan/uit (tot DROP)'], ['D', 'DROP']];
 
 function argOpties(soort) {
   const S = K.S;

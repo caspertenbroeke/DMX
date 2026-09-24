@@ -76,6 +76,12 @@ function delen() {
 function liveBijwerken(L) {
   if (podium) podium.teken();
   const st = L.s;
+  const lm = st.lichtman, ob = document.querySelector('.houd.opbouw');
+  if (ob) {
+    ob.classList.toggle('aan', !!(lm && lm.hand));
+    ob.textContent = lm && lm.sectie === 'opbouw' && lm.opbouw !== null ? `OPBOUW ${Math.round(lm.opbouw * 100)}%` : 'OPBOUW';
+    document.querySelector('.houd.dropknop').classList.toggle('aan', !!(lm && lm.flits));
+  }
   $$('#lvScenes [data-scene]').forEach(b => b.classList.toggle('aan', st.scene === b.dataset.scene));
   for (const soort of ['strobe', 'smoke', 'blinder']) {
     const b = document.querySelector(`.houd.${soort}`);
@@ -99,7 +105,10 @@ export default {
       <div class="stapel">
         <div class="blok"><h2>Vasthouden</h2>
           <div class="houders"><button class="houd strobe">STROBE</button><button class="houd smoke">SMOKE</button><button class="houd blinder">BLINDER</button></div>
-          <p class="hint">Werkt zolang je vasthoudt. Toetsen: <code>S</code> strobe, <code>R</code> rook, <code>W</code> blinder.</p></div>
+          <p class="hint">Werkt zolang je vasthoudt. Toetsen: <code>S</code> strobe, <code>R</code> rook, <code>W</code> blinder.</p>
+          <div class="houders twee" style="margin-top:10px"><button class="houd opbouw" data-lm="opbouw">OPBOUW</button><button class="houd dropknop" data-lm="drop">DROP!</button></div>
+          <p class="hint" id="lvLm">OPBOUW blijft aan tot je DROP drukt (toetsen <code>O</code> en <code>D</code>).
+            Met de Spotify-speaker onthoudt DMXDesk per nummer waar je drukte en doet het de volgende keer zelf.</p></div>
         <div class="blok"><h2>Snel</h2><div id="lvSnel"></div></div>
         <div class="blok"><h2>Laser &amp; looks</h2><div id="lvLooks"></div></div>
         <div class="blok"><h2>Faders</h2><div class="faders" id="lvFaders"></div></div>
@@ -114,6 +123,7 @@ export default {
 
     el.onclick = async e => {
       const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.lm) return doe('/api/lichtman', { actie: b.dataset.lm });
       if (b.dataset.scene !== undefined) return doe('/api/scene', { actie: 'laden', naam: b.dataset.scene });
       if (b.dataset.cue !== undefined) return doe('/api/actie', { soort: 'cue', arg: b.dataset.cue });
       if (b.dataset.cueactie) return doe('/api/cue', { actie: b.dataset.cueactie });

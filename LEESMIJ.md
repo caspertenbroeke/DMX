@@ -110,10 +110,13 @@ De app is meteen een Spotify-speaker, net als een Sonos of de Pi met raspotify:
 3. De muziek komt uit de luidsprekers van de computer, en het licht loopt mee.
 
 DMXDesk hoort elk stukje muziek eerst en speelt het pas **8 seconden later** af (instelbaar 0–20 s). Zo weet de
-lichtman vooraf waar de beats, de melodie en de drops vallen. Na het kiezen van een nummer begint de muziek daarom
-pas als die voorsprong er echt is (*licht klaarzetten*; meestal binnen een paar seconden). Pauze, spoelen en volume
-werken toch meteen: de speaker meldt ze direct, DMXDesk zet de muziek stil (het licht wacht netjes mee) of past het
-volume pas bij het afspelen toe. De voorsprong verander je tijdens het spelen zonder dat de muziek stopt; in
+lichtman vooraf waar de beats, de melodie en de drops vallen. Na het kiezen van een nummer begint de muziek pas als
+die voorsprong er echt is (*licht klaarzetten*). Spotify levert de eerste seconden veel sneller dan ze duren, dus
+meestal hoor je het nummer toch vrijwel meteen: de muziek wacht niet 8 s, het licht kijkt 8 s vooruit. De tijd in de
+Spotify-app loopt gelijk met wat je hoort, ook als het volgende nummer vanzelf begint (Spotify laat het volgende
+nummer dan heel even te vroeg zien en springt terug naar 0:00 als het echt begint) en na een pauze. Pauze, spoelen en
+volume werken meteen: de speaker meldt ze direct, DMXDesk zet de muziek stil (het licht wacht netjes mee) of past
+het volume pas bij het afspelen toe. De voorsprong verander je tijdens het spelen zonder dat de muziek stopt; in
 *Geluid* zie je hoeveel het licht nu echt vooruit hoort.
 
 **De speler** zit onderin de app (hoes, titel, vorige / pauze / volgende, voortgang, volume) en op de telefoonpagina
@@ -149,12 +152,21 @@ nummer is:
 | **Vol gas** | De luidste, volste stukken en de eerste tellen na een drop |
 | **Extreem!** | Alleen bij harde nummers (hardstyle e.d.): nog sneller, en af en toe een tel strobe |
 
-De drop is het moment dat de kick terugkomt na een stuk zonder kick. Met de Spotify-speaker ziet de lichtman die tot
-8 s van tevoren aankomen; via de microfoon/line-in herkent hij alles ook, alleen iets later en zonder opbouw vooraf.
+De drop is het moment dat de kick terugkomt na een stuk van minstens 8 s zonder kick (een fill of korte break telt
+niet) en daarna blijft. Met de Spotify-speaker ziet de lichtman die tot 8 s van tevoren aankomen; via de
+microfoon/line-in herkent hij alles ook, alleen iets later en zonder opbouw vooraf.
 Bij de **2e en 3e drop** van een hard nummer gaat de strobe een paar tellen aan (*Strobe bij harde drops*).
 **Wildheid** bepaalt hoe groot het verschil tussen de stukken is én hoe snel hij naar *vol gas* gaat: lager = rustiger.
 Welk niveau hij nu kiest zie je bovenin en in de treden bij *Effecten → Lichtman*. Met *Auto-show* kiest hij ook zelf
 passende patronen en bij een drop meteen iets nieuws.
+
+**Zelf sturen: OPBOUW en DROP.** Weet jij beter wanneer het losgaat? Druk **OPBOUW** als de opbouw begint: die blijft
+aan en bouwt steeds verder op tot je **DROP** drukt (flits, dan vol gas). Nog een keer OPBOUW = weer uit. De knoppen
+zitten bij *Effecten → Lichtman*, *Live*, op de telefoon (tabblad Muziek), onder toetsen **O** en **D**, en zijn aan
+een MIDI-knop te koppelen (*Instellingen*). Met de Spotify-speaker **leert** hij ervan: per nummer onthoudt hij waar
+je OPBOUW en DROP drukte, en de volgende keer dat dat nummer draait doet hij het precies daar vanzelf. Druk je DROP
+vlak na de vorige nog eens, dan verbetert hij het moment. *Vergeet* (bij *Effecten → Lichtman*) wist wat hij voor
+het huidige nummer geleerd heeft; alles staat in `geleerd.json` in de DMXDesk-map van je gebruiker.
 
 ## Beweging per lamp
 

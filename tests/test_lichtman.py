@@ -139,7 +139,7 @@ def test_pauze_schuift_alles_mee_en_ander_nummer_vergeet():
     e = Engine(None)
     nu = time.time()
     v = e.data["show"]["beat"]["vertraging_connect"] / 1000.0
-    e.beat_bericht({"soort": "energie", "bron": "connect", "t": nu + 5, "kt": nu + 5, "kick": 1.0, "e": 0.9})
+    e.beat_bericht({"soort": "energie", "bron": "connect", "t": nu + 5, "kt": nu + 5, "kick": 0.0, "e": 0.3})
     e.beat_bericht({"soort": "drop", "bron": "connect", "t": nu + 6})
     t0 = e.bpm_t0
     e.muziek_pauze(nu - 2.0)                      # 2 s geleden op pauze gezet
@@ -199,3 +199,36 @@ def test_strobe_bij_de_tweede_drop_van_een_hard_nummer():
     e.data["show"]["energie"]["strobe"] = False
     e.render(nu + 40 + 1.0)
     assert not e.drop_nu                    # uit te zetten
+
+
+def test_korte_break_is_geen_drop():
+    """Een fill of korte break (een paar tellen geen kick) geeft geen DROP; een echte breakdown wel."""
+    y = M.achter_elkaar(M.hardstyle(sec=10), M.breakdown(sec=4), M.hardstyle(sec=8, seed=7),
+                        M.breakdown(sec=12), M.hardstyle(sec=8, seed=9))
+    drops = [m["t"] for m in analyseer(y) if m["soort"] == "drop"]
+    assert len(drops) == 1 and abs(drops[0] - 34.0) < 0.15, drops      # alleen na de breakdown van 12 s
+    lm = Lichtman()
+    for i in range(100):                                               # kick zat er gewoon in
+        lm.punt(i / 10, 1.0, 0.8)
+    lm.drop(10.0)
+    assert not lm.drops
+
+
+def test_knop_opbouw_blijft_aan_tot_drop():
+    """OPBOUW blijft ingedrukt en bouwt steeds verder op; DROP geeft de flits en vol gas (ook zonder analyse)."""
+    e = Engine(None)
+    gehoord = []
+    e.bij_knop.append(lambda soort, t, aan: gehoord.append((soort, aan)))
+    e.lichtman_knop("opbouw")
+    nu = time.time()
+    st = e.lichtman.stand(nu + 3.0)
+    assert st["sectie"] == "opbouw" and st["hand"] and 0.3 < st["opbouw"] < 0.5, st
+    assert e.lichtman.stand(nu + 12.0)["opbouw"] > st["opbouw"]           # steeds verder, tot DROP
+    e.lichtman_knop("drop")
+    nu = time.time()
+    st = e.lichtman.stand(nu + 0.1)
+    assert st["flits"] and st["sectie"] in ("drop", "extreem") and not st["hand"], st
+    assert e.lichtman.stand(nu + 5.0)["sectie"] in ("drop", "extreem")
+    assert gehoord == [("opbouw", True), ("drop", False)]
+    with pytest.raises(ValueError):
+        e.lichtman_knop("iets")

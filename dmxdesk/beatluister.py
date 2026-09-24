@@ -52,6 +52,7 @@ IJK_KICK_DIEPTE = (8.0, 20.0)
 IJK_KICK_AANDEEL = (-20.0, -8.0)
 KICK_VENSTER = 112          # blokken (~1,3 s) waarover de kick gemeten wordt
 KICK_AAN, KICK_UIT = 0.55, 0.30
+DROP_STIL = 8.0             # s: zo lang moet de kick weg zijn (breakdown/opbouw) voor zijn terugkomst een drop is
 
 
 def schaal(waarde, laag, hoog):
@@ -222,12 +223,13 @@ class Analyse:
         self.e_start = None                     # pas na 10 s luisteren drops melden
         self.laatste_drop = -100.0
         # kick: bas en totaal (dB) per blok, met tijd
-        self.bas_db = deque(maxlen=KICK_VENSTER + 60)
-        self.tot_db = deque(maxlen=KICK_VENSTER + 60)
-        self.blok_t = deque(maxlen=KICK_VENSTER + 60)
+        self.bas_db = deque(maxlen=KICK_VENSTER + 120)
+        self.tot_db = deque(maxlen=KICK_VENSTER + 120)
+        self.blok_t = deque(maxlen=KICK_VENSTER + 120)
         self.kick = self.kick_ruw = 0.0
         self.kick_aan = False
         self.kick_uit_sinds = None              # sinds wanneer er geen kick is (voor drops)
+        self.kick_kandidaat = None              # sinds wanneer de kick (misschien) terug is
 
     def kick_meting(self, t_blok):
         """Kick 0..1: pompt de bas op de beat (dans, hardstyle) of niet (rustig, opbouw, breakdown)?"""
@@ -256,18 +258,25 @@ class Analyse:
         is de eerste harde bas-klap in de laatste ~2 s."""
         if self.kick_aan:
             if self.kick < KICK_UIT:
-                self.kick_aan, self.kick_uit_sinds = False, t_blok
+                self.kick_aan, self.kick_uit_sinds, self.kick_kandidaat = False, t_blok, None
             return
         if self.kick_uit_sinds is None:
             self.kick_uit_sinds = t_blok
         if self.kick < KICK_AAN:
+            self.kick_kandidaat = None          # (een losse basnoot of klap is nog geen kick die terug is)
+            return
+        if self.kick_kandidaat is None:
+            self.kick_kandidaat = t_blok
+        if t_blok - self.kick_kandidaat < 0.8:
             return
         self.kick_aan = True
-        stil = t_blok - self.kick_uit_sinds
-        if stil < 3.0 or self.e_start is None or t_blok - self.e_start < 4.0:
+        stil = self.kick_kandidaat - self.kick_uit_sinds
+        # een korte break of fill (een paar seconden geen kick) is geen drop
+        if stil < DROP_STIL or self.e_start is None or t_blok - self.e_start < 4.0:
             return
-        bas = np.array(self.bas_db)[-KICK_VENSTER:]
-        tijden = list(self.blok_t)[-KICK_VENSTER:]
+        n = KICK_VENSTER + int(0.8 * SR / HOP)
+        bas = np.array(self.bas_db)[-n:]
+        tijden = list(self.blok_t)[-n:]
         drempel = float(bas.max()) - 6.0
         eerste = int(np.argmax(bas >= drempel))
         t_drop = tijden[eerste]
@@ -316,10 +325,7 @@ class Analyse:
             self.e_traag = doel
         else:
             self.e_traag += (doel - self.e_traag) * (0.35 if doel > self.e_traag else 0.07)
-        if (t_blok - self.e_start > 10.0 and self.e_traag > 0.65 and min(self.e_historie) < 0.35
-                and t_blok - self.laatste_drop > 10.0 and not self.kick_aan):
-            self.laatste_drop = t_blok
-            self.stuur({"soort": "drop", "t": t_blok - 0.35})
+        # (drops komen alleen nog uit de kick: 'ineens harder' gaf ook bij een luider refrein een drop)
         self.e_historie.append(self.e_traag)
         # snel omhoog (drop!), rustiger omlaag
         if self.energie is None:
@@ -505,6 +511,7 @@ class Doorgever:
         self.actief = False         # het geluid loopt (niet op pauze, niet aan het voorvullen)
         self.t_stil = None          # sinds wanneer het stilstaat (of wanneer het voorvullen begon)
         self.vul_nodig = True       # eerst de voorsprong klaarzetten (begin, na leeg(), na haperen)
+        self.vrij_tot = 0.0         # tot dan lezen zonder op ruimte in de rij te wachten (zie vrij_lezen)
         self._uit = []              # berichten voor de lichtshow (buiten de lock versturen)
 
     def _zet(self, speelt, fout):
@@ -559,7 +566,8 @@ class Doorgever:
                     continue
                 with self.cond:
                     # (tijdens een pauze niet wachten: anders kan het 'verder spelen'-bericht niet gelezen worden)
-                    while self.in_rij >= self.max_bytes and not self.stoppen.is_set() and not self.gepauzeerd:
+                    while (self.in_rij >= self.max_bytes and not self.stoppen.is_set() and not self.gepauzeerd
+                           and time.time() >= self.vrij_tot):
                         self.cond.wait(0.1)
                     if self.t_stil is None:                  # eerste geluid: het voorvullen begint nu
                         self.t_stil = time.time()
@@ -590,7 +598,13 @@ class Doorgever:
     def hervat(self):
         with self.cond:
             self.gepauzeerd = False
+            nu = time.time()
+            if not self.actief and self.vul_nodig and not self.rij and (self.t_stil is None or nu > self.t_stil):
+                # tijdens de pauze leeggemaakt: het voorvullen begint pas nu
+                self.t_stil = nu
+                self._uit.append({"soort": "pauze", "t": nu})
             self.cond.notify_all()
+        self._verstuur()
 
     def leeg(self):
         """Alles wat nog in de rij staat weggooien (volgende nummer, spoelen). Daarna eerst weer voorvullen."""
@@ -603,10 +617,46 @@ class Doorgever:
             self.cond.notify_all()
         self._verstuur()
 
-    def markeer(self, functie):
-        """functie() wordt aangeroepen op het moment dat alles wat nu in de rij staat gespeeld is."""
+    def markeer(self, functie, voor=0.0):
+        """functie() wordt aangeroepen op het moment dat alles wat nu in de rij staat gespeeld is
+        (of `voor` seconden eerder). Geeft functie terug (voor leeg_vanaf)."""
         with self.cond:
-            self.rij.append(functie)
+            i, over = len(self.rij), voor * self.BPS
+            while i > 0 and over > 0:
+                i -= 1
+                if not callable(self.rij[i]):
+                    over -= len(self.rij[i])
+            self.rij.insert(i, functie)
+            self.cond.notify_all()
+        return functie
+
+    def leeg_vanaf(self, merk):
+        """Alles vanaf merk (van markeer()) weggooien; wat ervoor staat speelt gewoon uit, zonder gat.
+        Geeft terug wanneer merk te horen zou zijn, of None als het al gespeeld is (dan is er niets weg)."""
+        with self.cond:
+            ervoor = 0
+            for x in self.rij:
+                if x is merk:
+                    break
+                if not callable(x):
+                    ervoor += len(x)
+            else:
+                return None
+            while self.rij:
+                x = self.rij.pop()
+                if not callable(x):
+                    self.in_rij -= len(x)
+                if x is merk:
+                    break
+            basis = time.time() if self.actief else (self.t_stil or time.time())
+            self.cond.notify_all()
+            return basis + (ervoor + self.bezig) / self.BPS + getattr(self.uitgang, "latentie", 0.0)
+
+    def vrij_lezen(self, seconden):
+        """Even lezen zonder op ruimte te wachten: wat nog onderweg is (van vóór een spoel-opdracht)
+        snel binnenhalen, zodat de opdracht er meteen doorheen komt. 0 = weer gewoon."""
+        with self.cond:
+            self.vrij_tot = time.time() + seconden if seconden > 0 else 0.0
             self.cond.notify_all()
 
     def speel(self):

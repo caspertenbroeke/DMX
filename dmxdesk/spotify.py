@@ -174,14 +174,21 @@ class SpotifySpeaker:
         self.schrijf_lock = threading.Lock()
         self.speler = {}                 # wat je nu hoort: nummer, artiesten, hoes, positie, volume, …
         self._nieuw_speler()
+        self.geleerd_pad = os.path.join(paden.gebruikers_map(), "geleerd.json")
+        self.geleerd = self._laad_geleerd()
+        self.opbouw_pos = None           # OPBOUW gedrukt op deze plek in het nummer (ms), wacht op DROP
+        engine.bij_knop.append(self._knop)
         self.status_bijwerken()
 
     def _nieuw_speler(self):
-        self.speler = {"naam": "", "artiesten": [], "album": "", "hoes": None, "duur": 0, "pos": 0, "pos_t": 0.0,
+        self.speler = {"id": "", "naam": "", "artiesten": [], "album": "", "hoes": None, "duur": 0, "pos": 0, "pos_t": 0.0,
                        "speelt": False, "volume": 100, "gebruiker": "", "bediening": "", "shuffle": False}
         self.verzoek = None              # play-request van wat er nu geladen wordt
         self.einde_van = None            # play-request waarvan het einde bereikt is (volgende = vanzelf)
         self.pauze = False
+        self.overgang = False            # vanzelf door naar het volgende nummer: wacht op 'speelt'
+        self.b_start = None              # merkteken in de rij waar dat volgende nummer begint (nog niet gelijkgezet)
+        self.gelijk = None               # 'overgang' of 'pauze': Spotify wordt gelijkgezet met wat je hoort
         self.gespeeld_bij = 0            # doorgever.gespeeld toen het huidige nummer begon te klinken
         self.pos_basis = 0
 
@@ -205,6 +212,7 @@ class SpotifySpeaker:
             "voorsprong": cfg.get("voorsprong"),
             "fout": self.fout or (f"Geen geluid: {d.fout}" if d and d.fout else ""),
             "vooruit": round(d.vooruit(), 1) if d else 0.0,       # hoeveel het licht nu echt vooruit hoort
+            "geleerd": len((self.geleerd.get(self.speler.get("id") or "") or {}).get("momenten", [])),
             "vullen": bool(d and d.vul_nodig and not d.actief and d.in_rij > 0),
             "speler": dict(self.speler),
         }
@@ -302,46 +310,111 @@ class SpotifySpeaker:
             self._volume(m.get("v", 100))
         elif soort == "shuffle":
             sp["shuffle"] = bool(m.get("aan"))
+        elif soort == "verzoek":
+            # elk nieuw nummer begint hiermee: vanzelf (het vorige is tot het eind gelezen) of gekozen/geskipt
+            v = m.get("verzoek")
+            if v != self.verzoek:
+                vanzelf = self.verzoek is not None and self.einde_van == self.verzoek
+                if self.verzoek is not None and not vanzelf:
+                    self._leeg()          # gekozen: wat nog van het oude klaarstond weg, het nieuwe meteen
+                self.verzoek, self.overgang, self.gelijk = v, vanzelf, None
         elif soort == "laden":
-            # nieuw nummer: vanzelf (einde van het vorige gehad) of gekozen/geskipt (dan de wachtrij weg)
-            if self.verzoek is not None and self.einde_van != self.verzoek:
-                self._leeg()
-            self.verzoek = m.get("verzoek")
             self._markeer(pos=m.get("pos", 0))
         elif soort == "gespoeld":
-            self._leeg()
-            self._markeer(pos=m.get("pos", 0))
+            self._gespoeld(m.get("pos", 0))
         elif soort == "einde":
             self.einde_van = m.get("verzoek")
         elif soort == "nummer":
-            info = {k: m.get(k) for k in ("naam", "artiesten", "album", "hoes", "duur")}
+            info = {k: m.get(k) for k in ("id", "naam", "artiesten", "album", "hoes", "duur")}
             self._markeer(info=info)
         elif soort == "pauze" and d is not None and not self.pauze:
             self.pauze = True
             d.pauzeer()
             sp["pos"], sp["pos_t"], sp["speelt"] = self._positie(), time.time(), False
+            self._pauze_gelijkzetten()
         elif soort == "speelt":
             if self.pauze and d is not None:
                 self.pauze = False
                 d.hervat()
             sp["pos"], sp["pos_t"], sp["speelt"] = self._positie(), time.time(), True
+            if self.overgang and m.get("verzoek") == self.verzoek:
+                self.overgang = False
+                self._overgang_gelijkzetten(m.get("pos", 0))
         elif soort == "gestopt":
+            self.einde_van, self.overgang = None, False     # daarna iets kiezen = meteen (niet eerst uitspelen)
             self._markeer(stop=True)
         self.status_bijwerken()
+
+    # ------------------------------------------------------------ Spotify gelijk houden met wat je hoort
+    # De speaker leest `voorsprong` seconden vooruit. Spotify telt de tijd vanaf dat hij een nummer begint te
+    # lezen; bij kiezen/skippen is de voorsprong in een fractie van een seconde gevuld en klopt dat. Maar gaat
+    # hij vanzelf door naar het volgende nummer, dan begint dat te tellen terwijl je nog de laatste seconden
+    # van het vorige hoort (en na een pauze staat Spotify ook vooruit). Daarom zetten we Spotify dan terug naar
+    # wat je echt hoort en lezen we vanaf daar opnieuw vooruit (dat gaat snel; het licht merkt er niets van).
+    GELIJK_VOOR = 0.8          # zoveel seconden voor het nieuwe nummer te horen is, Spotify terugzetten
+
+    def _stuur(self, regel):
+        def doe():
+            try:
+                actie, *waarde = regel.split()
+                self.commando(actie, waarde[0] if waarde else None)
+            except ValueError:
+                pass
+        threading.Thread(target=doe, daemon=True, name="spotify-cmd").start()
+
+    def _overgang_gelijkzetten(self, pos):
+        d = self.doorgever
+        if d is None or d.vooruit() < 2 * self.GELIJK_VOOR + 0.5:
+            return                              # (bijna) geen voorsprong: Spotify loopt al gelijk
+        merk = d.markeer(lambda: None)          # hier begint het nieuwe nummer
+        self.b_start = merk
+
+        def terugzetten():                      # vlak voordat je het nieuwe nummer hoort
+            if self.b_start is merk and self.gelijk is None:
+                self.gelijk = "overgang"
+                d.vrij_lezen(1.0)
+                self._stuur(f"seek {int(pos)}")
+        d.markeer(terugzetten, voor=self.GELIJK_VOOR)
+
+    def _pauze_gelijkzetten(self):
+        d = self.doorgever
+        if d is None or not self.verbonden or self.b_start is not None or self.overgang or self.gelijk:
+            return
+        if d.vooruit() < 1.0:
+            return
+        self.gelijk = "pauze"                   # Spotify terug naar waar je bent; bij 'verder' vult hij opnieuw
+        self._stuur(f"seek {self._positie() + int(d.bezig * 1000 / Doorgever.BPS)}")
+
+    def _gespoeld(self, pos):
+        d, gelijk, merk = self.doorgever, self.gelijk, self.b_start
+        self.gelijk = None
+        if d is not None:
+            d.vrij_lezen(0)
+        if gelijk == "overgang" and merk is not None and d is not None:
+            t = d.leeg_vanaf(merk)              # het oude nummer speelt gewoon uit, het nieuwe opnieuw vanaf pos
+            if t is not None:
+                self.b_start = None
+                self.engine.muziek_vergeet(t)
+                d.a.reset()
+                self._markeer(pos=pos)
+                return
+        self._leeg(pauze_houden=(gelijk == "pauze"))
+        self._markeer(pos=pos)
 
     def _positie(self):
         d = self.doorgever
         gespeeld = (d.gespeeld - self.gespeeld_bij) if d else 0
         return int(self.pos_basis + gespeeld / Doorgever.BPS * 1000)
 
-    def _leeg(self):
+    def _leeg(self, pauze_houden=False):
         d = self.doorgever
         if d is None:
             return
+        self.b_start = None
         self.engine.muziek_vergeet(time.time())   # wat nog gepland stond (oude nummer) weg
         d.leeg()                                  # en de rij; daarna eerst weer voorvullen
         d.a.reset()                               # (zelfde draad als de analyse)
-        if self.pauze:
+        if self.pauze and not pauze_houden:
             self.pauze = False
             d.hervat()
 
@@ -353,14 +426,82 @@ class SpotifySpeaker:
 
         def nu_te_horen():
             sp = self.speler
+            nieuw = info is not None and info.get("id") != sp.get("id")
             if info is not None:
                 sp.update(info)
             if pos is not None:
                 self.pos_basis, self.gespeeld_bij = pos, d.gespeeld
             sp["pos"], sp["pos_t"] = self._positie(), time.time()
             sp["speelt"] = not stop and not self.pauze
+            if nieuw or pos is not None:
+                self.opbouw_pos = None
+                self._plan_geleerd(nieuw)
             self.status_bijwerken()
         d.markeer(nu_te_horen)
+
+    # ------------------------------------------------------------ leren: OPBOUW/DROP per nummer onthouden
+    def _laad_geleerd(self):
+        try:
+            with open(self.geleerd_pad, encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _bewaar_geleerd(self):
+        try:
+            tmp = self.geleerd_pad + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self.geleerd, f, ensure_ascii=False, indent=1)
+            os.replace(tmp, self.geleerd_pad)
+        except OSError as e:
+            print("Geleerde drops bewaren mislukt:", e, flush=True)
+
+    def _gehoord_ms(self):
+        """Waar je nu bent in het nummer (wat uit de luidspreker komt)."""
+        lat = getattr(self.uitgang, "latentie", 0.0) if self.uitgang else 0.0
+        return max(0, self._positie() - int(lat * 1000))
+
+    def _knop(self, soort, t, opbouw_aan):
+        """OPBOUW/DROP gedrukt: onthouden op welke plek in dit nummer."""
+        nid = self.speler.get("id")
+        if not nid or not self.speler.get("speelt") or self.doorgever is None:
+            return
+        pos = self._gehoord_ms()
+        if soort == "opbouw":
+            self.opbouw_pos = pos if opbouw_aan else None
+            return
+        begin, self.opbouw_pos = self.opbouw_pos, None
+        item = self.geleerd.setdefault(nid, {"naam": self.speler.get("naam", ""), "momenten": []})
+        oud = [mo for mo in item["momenten"] if abs(mo[1] - pos) < 2500]
+        if begin is None and oud:
+            begin = oud[0][0]            # opnieuw gedrukt om te verbeteren: de opbouw van de vorige keer blijft
+        item["momenten"] = [mo for mo in item["momenten"] if abs(mo[1] - pos) >= 2500]    # opnieuw gedrukt: vervangen
+        item["momenten"].append([begin if begin is not None and begin < pos else None, pos])
+        item["momenten"].sort(key=lambda mo: mo[1])
+        self._bewaar_geleerd()
+        print(f"Geleerd: '{item['naam']}' drop op {pos / 1000:.1f} s"
+              + (f", opbouw vanaf {begin / 1000:.1f} s" if begin is not None else ""), flush=True)
+        self.status_bijwerken()
+
+    def _plan_geleerd(self, nieuw_nummer):
+        """Het nummer (of een nieuwe plek erin) klinkt nu: de geleerde momenten inplannen."""
+        nu = time.time()
+        pos = self._gehoord_ms()
+        momenten = []
+        for begin, drop in (self.geleerd.get(self.speler.get("id") or "") or {}).get("momenten", []):
+            if drop > pos:
+                momenten.append((None if begin is None else nu + (begin - pos) / 1000.0, nu + (drop - pos) / 1000.0))
+        self.engine.leer_momenten(momenten, nummer_begint=nu if nieuw_nummer else None)
+
+    def vergeet_nummer(self):
+        nid = self.speler.get("id")
+        if not nid or nid not in self.geleerd:
+            raise ValueError("Voor dit nummer is nog niets geleerd")
+        del self.geleerd[nid]
+        self._bewaar_geleerd()
+        self.engine.vergeet_geleerd()
+        self.status_bijwerken()
 
     # ------------------------------------------------------------ draaien
     def _bewaak(self, cfg, stoppen):

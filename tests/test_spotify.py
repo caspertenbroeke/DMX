@@ -144,11 +144,14 @@ def test_spotify_instellingen_worden_gecontroleerd():
 
 NEP_SPEAKER = """#!{python}
 # Doet zich voor als dmxdesk-spotify: berichten [soort][lengte][inhoud] op stdout, commando's op stdin.
+# Geluid: links = 1000 * nummer, rechts = het hoeveelste stukje (50 ms) van het nummer (zo zie je wat er klinkt).
 import json, os, struct, sys, threading, time
 uit = sys.stdout.buffer
-lock = threading.Lock()
-toestand = {{"nummer": 1, "pauze": False}}
+lock = threading.RLock()
+toestand = {{"nummer": 1, "pauze": False, "pos": 0, "verzoek": 0}}
+LENGTE = int(float(os.environ.get("NEP_LENGTE", "1000")) * 20)       # stukjes van 50 ms per nummer
 open(os.environ["NEP_ARGS"], "w").write(json.dumps(sys.argv[1:]))
+log = open(os.environ["NEP_ARGS"] + ".log", "w")
 
 def bericht(soort, inhoud=b""):
     with lock:
@@ -158,24 +161,34 @@ def bericht(soort, inhoud=b""):
 def e(**kw):
     bericht(b"E", json.dumps(kw).encode())
 
-def nummer(n):
-    e(t="laden", verzoek=n, id="spotify:track:%d" % n, pos=0)
-    e(t="nummer", id="spotify:track:%d" % n, naam="Nummer %d" % n, artiesten=["DJ Test"], album="A", hoes=None, duur=60000)
-    e(t="speelt", verzoek=n, id="spotify:track:%d" % n, pos=0)
+def nummer(n, laden=True):
+    with lock:
+        toestand["verzoek"] += 1
+        toestand["nummer"], toestand["pos"] = n, 0
+        v = toestand["verzoek"]
+        e(t="verzoek", verzoek=v)
+        if laden:                                   # (vanzelf volgend nummer: al vooraf geladen, geen 'laden')
+            e(t="laden", verzoek=v, id="spotify:track:%d" % n, pos=0)
+        e(t="nummer", id="spotify:track:%d" % n, naam="Nummer %d" % n, artiesten=["DJ Test"], album="A", hoes=None,
+          duur=LENGTE * 50)
+        e(t="speelt", verzoek=v, id="spotify:track:%d" % n, pos=0)
 
 def commandos():
     for regel in sys.stdin:
         c = regel.split()
-        if c[0] == "pause":
-            toestand["pauze"] = True; e(t="pauze", verzoek=toestand["nummer"], id="x", pos=0)
-        elif c[0] == "play":
-            toestand["pauze"] = False; e(t="speelt", verzoek=toestand["nummer"], id="x", pos=0)
-        elif c[0] == "next":
-            with lock:
-                toestand["nummer"] += 1
-            nummer(toestand["nummer"])
-        elif c[0] == "volume":
-            e(t="volume", v=int(c[1]))
+        log.write("%.3f %s\\n" % (time.time(), regel.strip())); log.flush()
+        with lock:
+            v, p = toestand["verzoek"], toestand["pos"] * 50
+            if c[0] == "pause":
+                toestand["pauze"] = True; e(t="pauze", verzoek=v, id="x", pos=p)
+            elif c[0] == "play":
+                toestand["pauze"] = False; e(t="speelt", verzoek=v, id="x", pos=p)
+            elif c[0] == "next":
+                nummer(toestand["nummer"] + 1)
+            elif c[0] == "seek":
+                toestand["pos"] = int(c[1]) // 50; e(t="gespoeld", verzoek=v, pos=toestand["pos"] * 50)
+            elif c[0] == "volume":
+                e(t="volume", v=int(c[1]))
     os._exit(0)          # stdin dicht: DMXDesk is weg
 
 e(t="klaar", naam="x", volume=100)
@@ -183,24 +196,29 @@ e(t="verbonden", gebruiker="casper")
 nummer(1)
 threading.Thread(target=commandos, daemon=True).start()
 while True:
-    if toestand["pauze"]:
-        time.sleep(0.02); continue
-    waarde = 1000 * toestand["nummer"]          # nummer 1: 1000, nummer 2: 2000 (zo zie je wat er klinkt)
-    bericht(b"A", struct.pack("<h", waarde) * 2 * 2205)    # 50 ms stereo
-    time.sleep(0.001)                                          # (decoderen van het volgende stukje)
+    with lock:
+        if not toestand["pauze"]:
+            if toestand["pos"] >= LENGTE:           # einde: vanzelf door naar het volgende nummer
+                e(t="einde", verzoek=toestand["verzoek"])
+                nummer(toestand["nummer"] + 1, laden=False)
+            bericht(b"A", struct.pack("<hh", 1000 * toestand["nummer"], toestand["pos"]) * 2205)    # 50 ms stereo
+            toestand["pos"] += 1
+    time.sleep(0.02 if toestand["pauze"] else 0.001)            # (decoderen van het volgende stukje)
 """
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="nep-speaker is een script met #!")
-def test_speler_pauze_volgende_en_volume_werken_meteen(tmp_path, monkeypatch):
+def nep_speaker(tmp_path, monkeypatch, lengte=None):
+    """Start-klaar: nep-speaker en nep-geluidskaart. Geeft de lijst (tijd, links, rechts) van wat er klonk."""
     nep = tmp_path / "dmxdesk-spotify"
     nep.write_text(NEP_SPEAKER.format(python=sys.executable))
     nep.chmod(0o755)
     monkeypatch.setenv("DMXDESK_SPEAKER", str(nep))
     monkeypatch.setenv("NEP_ARGS", str(tmp_path / "args.json"))
+    if lengte:
+        monkeypatch.setenv("NEP_LENGTE", str(lengte))
     monkeypatch.setattr(spotify.paden, "gebruikers_map", lambda: str(tmp_path))
 
-    geschreven = []                                  # (tijd, eerste sample) van alles wat naar de luidspreker ging
+    geschreven = []                                  # (tijd, links, rechts) van alles wat naar de luidspreker ging
 
     class NepStream:
         latency = 0.02
@@ -213,7 +231,8 @@ def test_speler_pauze_volgende_en_volume_werken_meteen(tmp_path, monkeypatch):
 
         def write(self, data):
             time.sleep(len(data) / BPS)
-            geschreven.append((time.time(), int(np.frombuffer(data[:2], dtype="<i2")[0])))
+            links, rechts = np.frombuffer(data[:4], dtype="<i2")
+            geschreven.append((time.time(), int(links), int(rechts)))
 
         def stop(self):
             pass
@@ -226,15 +245,30 @@ def test_speler_pauze_volgende_en_volume_werken_meteen(tmp_path, monkeypatch):
         RawOutputStream=NepStream, query_hostapis=lambda: [{"name": "Nep"}],
         query_devices=lambda i=None: apparaat if i is not None else [apparaat],
         default=types.SimpleNamespace(device=(0, 0))))
+    return geschreven
 
-    def wacht(voorwaarde, sec=8):
-        eind = time.time() + sec
-        while time.time() < eind:
-            if voorwaarde():
-                return True
-            time.sleep(0.02)
-        return False
 
+def wacht(voorwaarde, sec=8):
+    eind = time.time() + sec
+    while time.time() < eind:
+        if voorwaarde():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def opdrachten(tmp_path):
+    """(tijd, opdracht) die de nep-speaker binnenkreeg."""
+    try:
+        regels = (tmp_path / "args.json.log").read_text().splitlines()
+    except OSError:
+        return []
+    return [(float(r.split(" ", 1)[0]), r.split(" ", 1)[1]) for r in regels if " " in r]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="nep-speaker is een script met #!")
+def test_speler_pauze_volgende_en_volume_werken_meteen(tmp_path, monkeypatch):
+    geschreven = nep_speaker(tmp_path, monkeypatch)
     e = Engine(None)
     e.data["spotify"].update(aan=True, naam="Test Wagen", voorsprong=3.0)
     sp = spotify.SpotifySpeaker(e)
@@ -253,16 +287,23 @@ def test_speler_pauze_volgende_en_volume_werken_meteen(tmp_path, monkeypatch):
         assert wacht(lambda: e.pauze_sinds is not None, 2)
         t_pauze = time.time()
         time.sleep(0.4)
-        assert not [t for t, _ in geschreven if t > t_pauze + 0.15]
+        assert not [t for t, *_ in geschreven if t > t_pauze + 0.15]
         assert not st()["speler"]["speelt"]
+        laatste = geschreven[-1][2]
+        # Spotify stond 3 s verder (zoveel las hij vooruit): terug naar wat je hoorde
+        seeks = [int(o.split()[1]) for _, o in opdrachten(tmp_path) if o.startswith("seek")]
+        assert seeks and abs(seeks[-1] - (laatste + 1) * 50) <= 100, (seeks, laatste)
         sp.commando("play")
-        assert wacht(lambda: [t for t, _ in geschreven if t > t_pauze + 0.4], 2)
+        assert wacht(lambda: [t for t, *_ in geschreven if t > t_pauze + 0.4], 2)
         assert e.pauze_sinds is None
+        na = [r for t, _, r in geschreven if t > t_pauze + 0.4]
+        assert abs(na[0] - (laatste + 1)) <= 2, (laatste, na[:5])          # gaat verder waar hij was
+        assert wacht(lambda: sp.doorgever.vooruit() > 2.5, 3)                 # en de voorsprong is er weer
 
         # volgende: het nieuwe nummer is meteen te horen (de wachtrij met 3 s van het oude gaat weg)
         t_volgende = time.time()
         sp.commando("next")
-        assert wacht(lambda: any(w == 2000 for _, w in geschreven[-3:]), 2)
+        assert wacht(lambda: any(w == 2000 for _, w, _ in geschreven[-3:]), 2)
         assert time.time() - t_volgende < 1.0
         assert wacht(lambda: st()["speler"]["naam"] == "Nummer 2", 2)
 
@@ -308,3 +349,66 @@ def test_opbouw_naar_een_drop_die_eraan_komt():
     assert e.drop_nu and e.opbouw is None            # de flits
     e.render(drop + 2.0)
     assert e.lm["sectie"] == "drop" and e.punch > 0.4
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="nep-speaker is een script met #!")
+def test_vanzelf_volgend_nummer_speelt_uit_en_spotify_loopt_gelijk(tmp_path, monkeypatch):
+    """Een nummer dat vanzelf begint: het vorige speelt helemaal uit (geen gat, niets afgekapt), en Spotify
+    wordt vlak voor het nieuwe nummer teruggezet, zodat zijn tijd klopt met wat je hoort."""
+    geschreven = nep_speaker(tmp_path, monkeypatch, lengte=5)       # nummers van 5 s
+    e = Engine(None)
+    e.data["spotify"].update(aan=True, naam="Test Wagen", voorsprong=3.0)
+    sp = spotify.SpotifySpeaker(e)
+    sp.bijwerken()
+    try:
+        assert wacht(lambda: sum(1 for _, w, _ in geschreven if w == 2000) > 30, 15)
+        assert e.status_info()["spotify"]["speler"]["naam"] == "Nummer 2"
+    finally:
+        sp.stop()
+    een = [r for _, w, r in geschreven if w == 1000]
+    twee = [(t, r) for t, w, r in geschreven if w == 2000]
+    assert een == list(range(100)), een[-5:]                         # nummer 1 helemaal, zonder sprong of herhaling
+    assert [r for _, r in twee] == list(range(len(twee))), [r for _, r in twee][:10]   # nummer 2 vanaf het begin
+    t_einde = max(t for t, w, _ in geschreven if w == 1000)
+    assert twee[0][0] - t_einde < 0.2                                  # geen stilte ertussen
+    seeks = [(t, o) for t, o in opdrachten(tmp_path) if o.startswith("seek")]
+    assert len(seeks) == 1 and seeks[0][1] == "seek 0", seeks
+    assert 0.3 < twee[0][0] - seeks[0][0] < 1.6, twee[0][0] - seeks[0][0]   # vlak voordat je hem hoort
+
+
+def test_speaker_leert_opbouw_en_drop_per_nummer(tmp_path, monkeypatch):
+    """OPBOUW en DROP gedrukt: onthouden op welke plek in dit nummer; de volgende keer gaat het vanzelf."""
+    monkeypatch.setattr(spotify.paden, "gebruikers_map", lambda: str(tmp_path))
+    e = Engine(None)
+    sp = spotify.SpotifySpeaker(e)
+    sp.doorgever = types.SimpleNamespace(gespeeld=0)
+    sp.speler.update(id="spotify:track:7", naam="Hardstyle", speelt=True)
+
+    def op(sp, ms):                   # je hoort nu dit stuk van het nummer
+        sp.doorgever.gespeeld = sp.gespeeld_bij + int((ms - sp.pos_basis) * BPS / 1000)
+
+    op(sp, 60000)
+    e.lichtman_knop("opbouw")
+    op(sp, 75000)
+    e.lichtman_knop("drop")
+    op(sp, 75800)
+    e.lichtman_knop("drop")           # nog een keer (iets later): vervangt de vorige
+    opgeslagen = json.loads((tmp_path / "geleerd.json").read_text())
+    assert opgeslagen["spotify:track:7"]["momenten"] == [[60000, 75800]]
+    assert len(sp.geleerd["spotify:track:7"]["momenten"]) == 1
+
+    # later, ander moment: hetzelfde nummer klinkt vanaf 50 s
+    e2 = Engine(None)
+    sp2 = spotify.SpotifySpeaker(e2)
+    sp2.doorgever = types.SimpleNamespace(gespeeld=0)
+    sp2.speler.update(id="spotify:track:7", speelt=True)
+    sp2.pos_basis = 50000
+    nu = time.time()
+    sp2._plan_geleerd(True)
+    st = e2.lichtman.stand(nu + 20.0)                       # 10 s van de 15,8 s opbouw
+    assert st["sectie"] == "opbouw" and 0.55 < st["opbouw"] < 0.72, st
+    assert e2.lichtman.stand(nu + 26.0)["flits"]            # de drop op 75,8 s
+    sp2.vergeet_nummer()
+    assert json.loads((tmp_path / "geleerd.json").read_text()) == {}
+    with pytest.raises(ValueError):
+        sp2.vergeet_nummer()

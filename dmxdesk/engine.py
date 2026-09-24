@@ -248,6 +248,8 @@ class Engine:
         self.eff, self.drop_nu = None, False
         self.muziek_beat = 0.0
         self.pauze_sinds = None          # Spotify-speaker op pauze: sinds wanneer
+        self.knop_drop_t = -1e9          # laatste keer dat iemand op DROP drukte
+        self.bij_knop = []               # functies(soort, tijd, opbouw_aan) als OPBOUW/DROP gedrukt wordt
         self.bevroren = False
         self._eff_f, self._eff_offset, self._eff_laatste = None, 0.0, None
         self.scene_actief, self.scene_vorig = None, {}
@@ -599,7 +601,7 @@ class Engine:
             if soort == "drop":
                 # na een stuk zonder kick komt hij terug: de lichtman bouwt ernaartoe op en flitst precies op de drop
                 t = float(m.get("t", nu)) + vertraging
-                self.lichtman.drop(t)
+                self.lichtman.drop(t, m.get("stil"))
                 info["laatste_drop"] = t
                 return
             if soort == "noot":
@@ -649,6 +651,37 @@ class Engine:
             fout = b - round(b)
             if abs(fout) < 0.35:
                 self.bpm_t0 += fout * 60.0 / float(self.data["show"]["bpm"]) * 0.35
+
+    # ------------------------------------------------------------ knoppen OPBOUW en DROP
+    def lichtman_knop(self, soort):
+        """OPBOUW (blijft aan tot DROP) en DROP. Anderen (de Spotify-speaker) kunnen meeluisteren om te leren."""
+        nu = time.time()
+        with self.lock:
+            if soort == "opbouw":
+                self.lichtman.knop_opbouw(nu)
+            elif soort == "drop":
+                self.lichtman.knop_drop(nu)
+                self.knop_drop_t = nu
+            else:
+                raise ValueError(f"onbekende knop '{soort}'")
+            aan = self.lichtman.hand_opbouw is not None
+            self.wijziging += 1
+        for luisteraar in list(self.bij_knop):
+            try:
+                luisteraar(soort, nu, aan)
+            except Exception as e:
+                print("Leren van de knop mislukt:", e, flush=True)
+
+    def leer_momenten(self, momenten, nummer_begint=None):
+        """Voor het nummer dat nu klinkt geleerde (opbouw-begin, drop)-momenten inplannen (echte tijd)."""
+        with self.lock:
+            if nummer_begint is not None:
+                self.lichtman.nieuw_nummer(nummer_begint)
+            self.lichtman.leer(momenten)
+
+    def vergeet_geleerd(self):
+        with self.lock:
+            self.lichtman.vergeet_geleerd(time.time())
 
     # ------------------------------------------------------------ speler: pauze, verder, ander nummer
     def muziek_pauze(self, t):
@@ -712,7 +745,8 @@ class Engine:
         """De lichtman bepaalt per moment hoe snel, fel en wild de show is; per laag met de eigen patronen."""
         cfg_e = show["energie"]
         contrast = float(cfg_e.get("contrast", 70)) / 100.0
-        st = self.lichtman.stand(nu, contrast) if cfg_e.get("aan") else None
+        knop = self.lichtman.hand_opbouw is not None or 0 <= nu - self.knop_drop_t < 8.0
+        st = self.lichtman.stand(nu, contrast) if (cfg_e.get("aan") or knop) else None
         if cfg_e.get("aan") and self.pauze_sinds is not None and nu >= self.pauze_sinds:
             # muziek op pauze: rustig en gedimd tot hij verder gaat
             st = {"sectie": "pauze", "kick": 0.0, "e": 0.0, "niveau": 0.0, "opbouw": None, "drop_t": None,
@@ -1486,6 +1520,8 @@ class Engine:
                 self.gewijzigd()
             elif soort == "tap":
                 self.tap()
+            elif soort in ("opbouw", "drop"):
+                self.lichtman_knop(soort)
             elif soort == "tempo":
                 show["tempo_factor"] = float(arg)
                 self.gewijzigd()
@@ -1508,6 +1544,7 @@ class Engine:
             return None
         return {"sectie": st["sectie"], "naam": SECTIES.get(st["sectie"], "Pauze" if st["sectie"] == "pauze" else st["sectie"]),
                 "strobe": self.drop_nu and not st["flits"],
+                "hand": self.lichtman.hand_opbouw is not None,
                 "opbouw": round(st["opbouw"], 2) if st["opbouw"] is not None else None,
                 "kick": st["kick"], "niveau": st["niveau"], "flits": st["flits"],
                 "drop_over": round(st["drop_t"] - nu, 1) if st["drop_t"] else None}

@@ -64,6 +64,8 @@ function lichtmanBlok(s) {
       <h2>Lichtman</h2>
       <div class="lichtman"><b id="lmSectie">–</b><span class="hint" id="lmExtra"></span></div>
       <div class="treden" id="lmTreden">${TREDEN.map(([k, t]) => `<span data-trede="${k}">${t}</span>`).join('')}</div>
+      <div class="knoppen twee" style="margin-bottom:8px"><button data-lm="opbouw" id="lmOpbouw">OPBOUW</button><button data-lm="drop">DROP!</button></div>
+      <p class="hint" id="lmGeleerd" style="margin-top:0"></p>
       <div class="rij"><label>Kick</label><div class="meter" style="flex:1"><i id="lmKick"></i></div></div>
       <div class="rij"><label>Energie</label><div class="meter" style="flex:1"><i id="efMeter"></i></div></div>
       <div class="knoppen twee" style="margin-top:8px">
@@ -198,6 +200,11 @@ function energie(L) {
   s.textContent = lm.flits ? '💥 DROP!' : lm.strobe ? '⚡ STROBE' : lm.naam + (lm.sectie === 'opbouw' && lm.opbouw !== null ? ` ${Math.round(lm.opbouw * 100)}%` : '');
   s.className = 'sectie-' + lm.sectie;
   x.textContent = lm.drop_over ? `drop over ${Math.ceil(lm.drop_over)} s` : '';
+  $('#lmOpbouw').classList.toggle('aan', !!lm.hand);
+  const sp = st.spotify, g = $('#lmGeleerd');
+  if (g) g.innerHTML = sp && sp.speler && sp.speler.naam
+    ? (sp.geleerd ? `Geleerd voor <b>${esc(sp.speler.naam)}</b>: ${sp.geleerd} drop${sp.geleerd > 1 ? 's' : ''}. <button class="stil" id="lmVergeet">Vergeet</button>`
+      : `Druk OPBOUW en DROP op het juiste moment: dan onthoudt hij het voor <b>${esc(sp.speler.naam)}</b>.`) : '';
   const trede = { break: 'rustig', pauze: 'rustig' }[lm.sectie] || lm.sectie;
   document.querySelectorAll('#lmTreden [data-trede]').forEach(t => t.classList.toggle('aan', t.dataset.trede === trede));
 }
@@ -209,6 +216,8 @@ export default {
     teken(el);
     el.onclick = async e => {
       const b = e.target.closest('button, .swatch'); if (!b) return;
+      if (b.dataset.lm) return doe('/api/lichtman', { actie: b.dataset.lm });
+      if (b.id === 'lmVergeet') return doe('/api/lichtman', { actie: 'vergeet' }, 'Vergeten voor dit nummer');
       if (b.dataset.laag !== undefined) { laag = b.dataset.laag || null; return teken(el); }
       if (b.id === 'efLaagEigen') { await doe('/api/show', { lagen: { [laag]: { eigen: true } } }); await laadState(); return teken(el); }
       if (b.id === 'efLaagWeg') { await doe('/api/show', { lagen: { [laag]: null } }); await laadState(); return teken(el); }

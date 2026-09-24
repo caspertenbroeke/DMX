@@ -326,3 +326,11 @@ body.met-speler #menu { bottom: 68px; }
 .chip.lm-druk { color: #ff7a45; border-color: #ff7a4588; }
 .chip.lm-extreem { color: #fff; background: #d0147a; border-color: #d0147a; }
 .chip.lm-pauze { color: var(--zacht); }
+
+/* knoppen OPBOUW en DROP */
+.houders.twee { grid-template-columns: 1fr 1fr; }
+.houd.opbouw { color: #ff9a3c; border-color: #ff9a3c; background: #2a1606; }
+.houd.opbouw.aan { background: #ff9a3c; animation: opbouwen .5s ease-in-out infinite alternate; }
+.houd.dropknop { color: #ff4d6d; border-color: #ff4d6d; background: #2a0710; }
+.houd.dropknop.aan { background: #fff; color: #000; }
+@keyframes opbouwen { from { filter: brightness(.8); } to { filter: brightness(1.25); } }

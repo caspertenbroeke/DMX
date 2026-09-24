@@ -6,7 +6,8 @@
 //! Stdout: een reeks berichten, elk `[soort: 1 byte][lengte: u32 little-endian][inhoud]`:
 //!   `A` audio (16 bit stereo, 44,1 kHz)     `S` audio begint      `P` audio stopt (pauze/stop)
 //!   `E` gebeurtenis (JSON): nummer, volume, pauze, spoelen, ...
-//! Audio en S/P komen uit dezelfde draad, dus precies in de goede volgorde.
+//! Audio, S/P en de gebeurtenissen van de speler staan precies in de volgorde van het geluid: vóór elk
+//! stukje geluid gaat eerst alles wat de speler daarvoor meldde (nieuw nummer, spoelen, einde).
 //!
 //! Stdin: één commando per regel: `play`, `pause`, `playpause`, `next`, `prev`, `volume <0-100>`,
 //! `seek <ms>`, `shuffle <0|1>`, `repeat <0|1>`. Gaat stdin dicht (DMXDesk is weg), dan stopt deze speaker ook.
@@ -15,8 +16,8 @@
 //! analyse altijd het volle signaal en werkt de volumeknop meteen (ook met seconden voorsprong).
 
 use std::io::{self, Write};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
@@ -36,7 +37,7 @@ use librespot_playback::{
     convert::Converter,
     decoder::AudioPacket,
     mixer::{Mixer, MixerConfig},
-    player::{Player, PlayerEvent},
+    player::{Player, PlayerEvent, PlayerEventChannel},
 };
 use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
@@ -59,17 +60,36 @@ fn gebeurtenis(v: Value) {
     bericht(b'E', v.to_string().as_bytes());
 }
 
+/// De gebeurtenissen van de speler. Alle gebeurtenissen komen uit de spelerdraad, net als het geluid:
+/// wie vóór een stukje geluid eerst deze rij leegt, schrijft alles in precies de goede volgorde.
+type Gebeurtenissen = Arc<Mutex<Option<PlayerEventChannel>>>;
+
+/// Eerst de gebeurtenissen die al gemeld zijn, dan (eventueel) dit bericht; niemand kan ertussen komen.
+fn in_volgorde(rij: &Gebeurtenissen, soort: Option<(u8, &[u8])>) {
+    let mut rij = rij.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(kanaal) = rij.as_mut() {
+        while let Ok(e) = kanaal.try_recv() {
+            if let Some(v) = gebeurtenis_van(e) {
+                gebeurtenis(v);
+            }
+        }
+    }
+    if let Some((soort, inhoud)) = soort {
+        bericht(soort, inhoud);
+    }
+}
+
 /// Audio-uitgang: alles gaat (in volgorde) naar DMXDesk.
-struct DmxSink;
+struct DmxSink(Gebeurtenissen);
 
 impl Sink for DmxSink {
     fn start(&mut self) -> SinkResult<()> {
-        bericht(b'S', &[]);
+        in_volgorde(&self.0, Some((b'S', &[])));
         Ok(())
     }
 
     fn stop(&mut self) -> SinkResult<()> {
-        bericht(b'P', &[]);
+        in_volgorde(&self.0, Some((b'P', &[])));
         Ok(())
     }
 
@@ -80,7 +100,7 @@ impl Sink for DmxSink {
             for s in s16 {
                 bytes.extend_from_slice(&s.to_le_bytes());
             }
-            bericht(b'A', &bytes);
+            in_volgorde(&self.0, Some((b'A', &bytes)));
         }
         Ok(())
     }
@@ -110,6 +130,8 @@ fn procent(volume: u16) -> u32 {
 fn gebeurtenis_van(e: PlayerEvent) -> Option<Value> {
     use PlayerEvent::*;
     Some(match e {
+        // elk nieuw verzoek (kiezen, volgende, vanzelf door naar het volgende nummer) begint hiermee
+        PlayRequestIdChanged { play_request_id } => json!({"t": "verzoek", "verzoek": play_request_id}),
         Loading { play_request_id, track_id, position_ms } => {
             json!({"t": "laden", "verzoek": play_request_id, "id": track_id.to_string(), "pos": position_ms})
         }
@@ -240,8 +262,15 @@ async fn main() {
 
     let mixer: Arc<dyn Mixer> = Arc::new(DmxMixer(AtomicU16::new(start_volume)));
     let mut session = Session::new(session_config.clone(), cache.clone());
-    let player = Player::new(player_config, session.clone(), mixer.get_soft_volume(), || Box::new(DmxSink));
-    let mut events = player.get_player_event_channel();
+    let rij: Gebeurtenissen = Arc::new(Mutex::new(None));
+    let sink_rij = rij.clone();
+    let player = Player::new(player_config, session.clone(), mixer.get_soft_volume(), move || Box::new(DmxSink(sink_rij)));
+    *rij.lock().unwrap_or_else(|e| e.into_inner()) = Some(player.get_player_event_channel());
+    // wat de speler meldt terwijl er geen geluid komt (pauze, stop, volume): toch meteen doorgeven
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(20));
+        in_volgorde(&rij, None);
+    });
     gebeurtenis(json!({"t": "klaar", "naam": naam, "volume": procent(start_volume)}));
 
     let mut spirc: Option<Spirc> = None;
@@ -292,10 +321,6 @@ async fn main() {
                     if !session.is_invalid() { session.shutdown(); }
                     verbinden = true;
                 }
-            },
-            e = events.recv() => match e {
-                Some(e) => if let Some(v) = gebeurtenis_van(e) { gebeurtenis(v) },
-                None => break,
             },
             regel = regels.next_line() => match regel {
                 Ok(Some(r)) => commando(r.trim(), &spirc).await,

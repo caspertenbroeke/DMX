@@ -33,6 +33,8 @@
   .rijtje { display: flex; gap: 10px; flex: 0 0 64px; }
   .rijtje .knop { font-size: clamp(16px, 5vw, 26px); border-width: 2px; border-radius: 14px; }
   #blinder { border-color: #ff9f0a; color: #ff9f0a; background: #2a1a00; } #blinder.aan { background: #ff9f0a; }
+  #opbouw { border-color: #ff9a3c; color: #ff9a3c; background: #2a1606; } #opbouw.aan { background: #ff9a3c; color: #000 !important; }
+  #dropknop { border-color: #ff4d6d; color: #ff4d6d; background: #2a0710; } #dropknop.aan { background: #fff; color: #000 !important; }
   #blackout { border-color: #ff453a; color: #ff453a; background: #2a0906; } #blackout.aan { background: #ff453a; color: #fff !important; }
   .scenes { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; align-content: start; }
   .scenes button, .snel button { background: #151518; color: #fff; border: 1px solid #2a2a30; border-left: 6px solid var(--k, #3a3a43);
@@ -76,6 +78,7 @@
     <div class="knop" id="strobe" data-houd="strobe">STROBE</div>
     <div class="knop" id="beide" data-houd="smoke strobe">SMOKE<br>+ STROBE</div>
     <div class="rijtje"><div class="knop" id="blinder" data-houd="blinder">BLINDER</div><div class="knop" id="blackout">BLACKOUT</div></div>
+    <div class="rijtje"><div class="knop" id="opbouw">OPBOUW</div><div class="knop" id="dropknop">DROP!</div></div>
   </div>
 
   <div class="scherm" id="scenes">
@@ -159,6 +162,12 @@
   document.getElementById('los').onclick = () => post('/api/scene', { actie: 'loslaten' }).then(ververs);
   document.getElementById('auto').onclick = () => post('/api/actie', { soort: 'auto' }).then(ververs);
   document.getElementById('blackout').onclick = () => post('/api/actie', { soort: 'blackout' }).then(ververs);
+  for (const [id, actie] of [['opbouw', 'opbouw'], ['dropknop', 'drop']]) {
+    document.getElementById(id).addEventListener('pointerdown', e => {
+      e.preventDefault(); if (navigator.vibrate) navigator.vibrate(actie === 'drop' ? 40 : 15);
+      post('/api/lichtman', { actie }).then(ververs);
+    });
+  }
   const master = document.getElementById('master');
   let masterTimer = 0;
   master.oninput = () => {
@@ -178,6 +187,9 @@
       tekst.textContent = (status.dongle ? 'DMX verbonden' : 'geen DMX-uitgang') + ` · ${status.bpm} BPM`;
       document.getElementById('blackout').classList.toggle('aan', status.blackout);
       document.getElementById('auto').classList.toggle('aan', status.auto);
+      const lm = status.lichtman;
+      document.getElementById('opbouw').classList.toggle('aan', !!(lm && lm.hand));
+      document.getElementById('opbouw').textContent = lm && lm.hand && lm.opbouw !== null ? `OPBOUW ${Math.round(lm.opbouw * 100)}%` : 'OPBOUW';
       if (!masterBezig) { master.value = status.master; document.getElementById('masterW').textContent = status.master; }
       if (status.wijziging !== wijziging) {
         wijziging = status.wijziging;

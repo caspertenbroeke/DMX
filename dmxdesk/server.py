@@ -360,6 +360,13 @@ class Handler(BaseHTTPRequestHandler):
                 e.gewijzigd()
             if a.spotify:
                 a.spotify.bijwerken()
+        elif pad == "/api/lichtman":
+            if body.get("actie") == "vergeet":
+                if not a.spotify:
+                    raise ValueError("Geen Spotify-speaker")
+                a.spotify.vergeet_nummer()
+            else:
+                e.lichtman_knop(str(body.get("actie")))
         elif pad == "/api/speler":
             if not a.spotify:
                 raise ValueError("Geen Spotify-speaker")
