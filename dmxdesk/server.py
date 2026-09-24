@@ -46,22 +46,22 @@ def lan_adressen(poort):
 
 
 def _zoek_ips():
+    """Zonder DNS (dat kan op een Mac tientallen seconden hangen): via welk eigen adres gaat verkeer naar
+    een paar netwerken toe. Er gaat niets echt de deur uit, connect() op UDP kiest alleen een route."""
     ips = []
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("10.255.255.255", 1))     # er gaat niets echt de deur uit
-        ips.append(s.getsockname()[0])
-        s.close()
-    except OSError:
-        pass
-    try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            ip = info[4][0]
-            if ip not in ips and not ip.startswith("127."):
-                ips.append(ip)
-    except OSError:
-        pass
-    return [ip for ip in ips if not ip.startswith("127.")]
+    for doel in ("10.255.255.255", "192.168.255.255", "172.31.255.255", "8.8.8.8"):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                s.connect((doel, 1))
+                ip = s.getsockname()[0]
+            finally:
+                s.close()
+        except OSError:
+            continue
+        if ip not in ips and not ip.startswith(("127.", "0.")):
+            ips.append(ip)
+    return ips
 
 
 def qr_beschikbaar():

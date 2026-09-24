@@ -91,10 +91,10 @@ def met_venster():
     print("---- logbestand ----\n" + log)
     if not ok:
         sys.exit("De app startte niet of antwoordde niet (zie het logbestand hierboven).")
-    if "mislukt" in log or "niet beschikbaar" in log or not nog_bezig:
-        print("::warning::De app draait, maar het eigen app-venster ging niet open (dan opent hij in de browser).")
-    else:
+    if "App-venster wordt geopend" in log and "mislukt" not in log and nog_bezig:
         print("Venstertest OK: de app draait met een eigen venster.")
+    else:
+        print("::warning::De app draait, maar het eigen app-venster ging niet (op tijd) open; dan opent hij in de browser.")
 
 
 if __name__ == "__main__":

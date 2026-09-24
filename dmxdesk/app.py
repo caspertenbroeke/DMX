@@ -70,7 +70,8 @@ def beat_lus(engine):
 def draait_al(poort):
     """Draait er op deze poort al een DMXDesk? Dan openen we die in plaats van een tweede te starten."""
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{poort}/api/info", timeout=0.8) as r:
+        zonder_proxy = urllib.request.build_opener(urllib.request.ProxyHandler({}))   # geen systeem-proxy nodig
+        with zonder_proxy.open(f"http://127.0.0.1:{poort}/api/info", timeout=0.8) as r:
             return json.loads(r.read()).get("naam") == NAAM
     except Exception:
         return False
