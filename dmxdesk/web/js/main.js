@@ -73,6 +73,13 @@ function kopLive(L) {
   beatInfo = { beat: s.beat, bpm: s.bpm, t: performance.now() };
   const e = Object.values(s.luister || {}).find(i => i.energie !== null && i.energie !== undefined);
   $('#kEnergie').style.width = e ? Math.round(e.energie * 100) + '%' : '0%';
+  const lm = s.lichtman, klm = $('#kLm');
+  klm.hidden = !lm;
+  if (lm) {
+    klm.textContent = lm.flits ? '💥 DROP' : lm.naam + (lm.sectie === 'opbouw' && lm.opbouw !== null ? ` ${Math.round(lm.opbouw * 100)}%` : '')
+      + (lm.drop_over && lm.sectie === 'opbouw' ? ` · drop ${Math.ceil(lm.drop_over)}s` : '');
+    klm.className = 'chip lm-' + lm.sectie;
+  }
   const sc = $('#kScene'); sc.hidden = !s.scene; sc.textContent = s.scene ? '▶ ' + s.scene : '';
   const cue = $('#kCue'); cue.hidden = !s.cue;
   if (s.cue) cue.textContent = `${s.cue.pauze ? '⏸' : '⟳'} ${s.cue.lijst} ${s.cue.stap + 1}/${s.cue.aantal}`;

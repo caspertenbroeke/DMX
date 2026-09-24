@@ -41,6 +41,20 @@ def _stap_fase(cfg, beat):
     return s, int(math.floor(beat / s)), (beat / s) % 1.0
 
 
+def _overloop(fase, zacht):
+    """Rustige stukken (de lichtman zet 'zacht'): het laatste deel van elke stap loopt vloeiend over in de volgende."""
+    if zacht <= 0:
+        return 0.0
+    f = clamp((fase - (1.0 - zacht)) / zacht, 0.0, 1.0)
+    return f * f * (3 - 2 * f)
+
+
+# effecten die in stappen gaan (die kunnen zacht overlopen); de rest loopt al vloeiend
+STAP_INTENSITEIT = {"chase", "chase_terug", "pingpong", "dubbel_chase", "om_en_om", "linksrechts", "binnenbuiten",
+                    "midden_uit", "buiten_in", "vullen", "knipper", "random"}
+STAP_KLEUR = {"wissel", "chase", "split", "regenboog_stap", "random"}
+
+
 # ---------------------------------------------------------------- intensiteit
 
 INTENSITEIT_MODI = [
@@ -56,6 +70,17 @@ INTENSITEIT_MODI = [
 def intensiteit_effect(cfg, beat, i, n, x, sinds_noot=None):
     m = cfg.get("modus", "aan")
     n = max(1, n)
+    zacht = float(cfg.get("zacht") or 0)
+    if zacht > 0:
+        hard = dict(cfg, zacht=0)
+        if m in STAP_INTENSITEIT:
+            s, _, fase = _stap_fase(cfg, beat)
+            a = intensiteit_effect(hard, beat, i, n, x, sinds_noot)
+            f = _overloop(fase, zacht)
+            return a if f <= 0 else a + (intensiteit_effect(hard, beat + s, i, n, x, sinds_noot) - a) * f
+        if m in ("puls", "flits", "zaag_op", "zaag_neer", "sparkle"):
+            v = intensiteit_effect(hard, beat, i, n, x, sinds_noot)
+            return v * (1 - zacht) + zacht * (0.45 + 0.55 * v)
     if m == "noot_puls":
         if sinds_noot is None:
             return 1.0
@@ -117,8 +142,18 @@ KLEUR_MODI = [
 
 
 def kleur_effect(cfg, beat, i, n, noten=(), x=50.0):
-    palet = [hex_rgb(c) for c in (cfg.get("palet") or ["#ffffff"])]
     m = cfg.get("modus", "vast")
+    zacht = float(cfg.get("zacht") or 0)
+    if zacht > 0 and m in STAP_KLEUR:
+        hard = dict(cfg, zacht=0)
+        s, _, fase = _stap_fase(cfg, beat)
+        a = kleur_effect(hard, beat, i, n, noten, x)
+        f = _overloop(fase, zacht)
+        if f <= 0:
+            return a
+        b = kleur_effect(hard, beat + s, i, n, noten, x)
+        return tuple(a[k] + (b[k] - a[k]) * f for k in range(3))
+    palet = [hex_rgb(c) for c in (cfg.get("palet") or ["#ffffff"])]
     n = max(1, n)
     s, stap, _ = _stap_fase(cfg, beat)
     spreid = clamp(float(cfg.get("spreiding", 0)), 0, 100) / 100.0

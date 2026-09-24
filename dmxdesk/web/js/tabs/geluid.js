@@ -35,7 +35,7 @@ function spotify() {
          ${lijst.map(d => `<option value="${esc(d.naam)}" ${d.naam === cfg.apparaat ? 'selected' : ''}>${esc(d.naam)}</option>`).join('')}
          ${cfg.apparaat && !lijst.some(d => d.naam === cfg.apparaat) ? `<option value="${esc(cfg.apparaat)}" selected>${esc(cfg.apparaat)} (niet gevonden)</option>` : ''}
        </select><button class="stil" id="glSpVernieuw" title="Opnieuw zoeken">↻</button></div>
-       <div class="rij"><label>Licht vooruit</label><input type="range" min="0" max="10" step="0.5" value="${cfg.voorsprong}" id="glSpVoor">
+       <div class="rij"><label>Licht vooruit</label><input type="range" min="0" max="20" step="0.5" value="${cfg.voorsprong}" id="glSpVoor">
          <span class="waarde">${cfg.voorsprong} s</span></div>
        <p class="hint">Open Spotify op je telefoon of computer (zelfde wifi), tik op het speaker-icoon en kies <b>${esc(cfg.naam)}</b>,
          net als bij Sonos. DMXDesk hoort de muziek eerst en speelt hem <b>${cfg.voorsprong} seconden later</b> af: zo weet de lichtshow vooraf

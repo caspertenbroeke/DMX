@@ -46,6 +46,12 @@ HOOG_BIN = int(5000 / (SR / WIN))
 # ijkpunten (laag, hoog) voor drukte en helderheid: wat telt als rustig (0) en extreem (1)
 IJK_DRUKTE = (0.20, 0.29)     # geijkt op de 9 nummers in de bibliotheek (sept 2026)
 IJK_HOOG = (0.10, 0.40)
+# kick: hoe diep de bas per beat 'pompt' (dB tussen kick en gat) en hoe sterk de bas dan is t.o.v. de rest.
+# Hardstyle/house: ~20-30 dB diep en de bas overheerst; rustige nummers (ook op 150 BPM): < 8 dB of zachte bas.
+IJK_KICK_DIEPTE = (8.0, 20.0)
+IJK_KICK_AANDEEL = (-20.0, -8.0)
+KICK_VENSTER = 112          # blokken (~1,3 s) waarover de kick gemeten wordt
+KICK_AAN, KICK_UIT = 0.55, 0.30
 
 
 def schaal(waarde, laag, hoog):
@@ -215,8 +221,65 @@ class Analyse:
         self.e_traag = None
         self.e_start = None                     # pas na 10 s luisteren drops melden
         self.laatste_drop = -100.0
+        # kick: bas en totaal (dB) per blok, met tijd
+        self.bas_db = deque(maxlen=KICK_VENSTER + 60)
+        self.tot_db = deque(maxlen=KICK_VENSTER + 60)
+        self.blok_t = deque(maxlen=KICK_VENSTER + 60)
+        self.kick = self.kick_ruw = 0.0
+        self.kick_aan = False
+        self.kick_uit_sinds = None              # sinds wanneer er geen kick is (voor drops)
+
+    def kick_meting(self, t_blok):
+        """Kick 0..1: pompt de bas op de beat (dans, hardstyle) of niet (rustig, opbouw, breakdown)?"""
+        if len(self.bas_db) < KICK_VENSTER:
+            return 0.0
+        bas = np.array(self.bas_db)[-KICK_VENSTER:]
+        tot = np.array(self.tot_db)[-KICK_VENSTER:]
+        bpm = float(self.tempo.get_bpm())
+        p = 60.0 / bpm * SR / HOP if 50 < bpm < 260 else 0.45 * SR / HOP
+        if p < 0.33 * SR / HOP:                  # een halve beat gevonden: hele beats nemen
+            p *= 2
+        diep, aandeel = [], []
+        for i in range(int(len(bas) // p)):
+            a, e = int(round(i * p)), int(round((i + 1) * p))
+            w = bas[a:e]
+            if len(w) < 3:
+                continue
+            diep.append(min(30.0, float(w.max() - w.min())))
+            aandeel.append(float(w.max() - tot[a:e].max()))
+        if not diep:
+            return 0.0
+        return schaal(float(np.median(diep)), *IJK_KICK_DIEPTE) * schaal(float(np.median(aandeel)), *IJK_KICK_AANDEEL)
+
+    def drop_zoeken(self, t_blok):
+        """Na een stuk zonder kick (opbouw, breakdown) komt de kick terug: dat is de drop. Het precieze moment
+        is de eerste harde bas-klap in de laatste ~2 s."""
+        if self.kick_aan:
+            if self.kick < KICK_UIT:
+                self.kick_aan, self.kick_uit_sinds = False, t_blok
+            return
+        if self.kick_uit_sinds is None:
+            self.kick_uit_sinds = t_blok
+        if self.kick < KICK_AAN:
+            return
+        self.kick_aan = True
+        stil = t_blok - self.kick_uit_sinds
+        if stil < 3.0 or self.e_start is None or t_blok - self.e_start < 4.0:
+            return
+        bas = np.array(self.bas_db)[-KICK_VENSTER:]
+        tijden = list(self.blok_t)[-KICK_VENSTER:]
+        drempel = float(bas.max()) - 6.0
+        eerste = int(np.argmax(bas >= drempel))
+        t_drop = tijden[eerste]
+        if t_drop - self.laatste_drop > 8.0:
+            self.laatste_drop = t_drop
+            self.stuur({"soort": "drop", "t": t_drop, "kick": True, "stil": round(stil, 1)})
 
     def energie_meting(self, blok, spectrum, t_blok):
+        vermogen = spectrum * spectrum
+        self.bas_db.append(10.0 * np.log10(float(vermogen[1:4].sum()) + 1e-3))
+        self.tot_db.append(10.0 * np.log10(float(vermogen.sum()) + 1e-3))
+        self.blok_t.append(t_blok)
         totaal = float(spectrum.sum()) + 1e-9
         if self.vorig_spectrum is None:
             drukte = 0.0
@@ -239,17 +302,22 @@ class Analyse:
         # absoluut: drukte en helderheid, geijkt op de eigen muziekbibliotheek
         absoluut = 0.6 * schaal(druk, *IJK_DRUKTE) + 0.4 * schaal(helder, *IJK_HOOG)
         stil = luid < -45
-        doel = 0.0 if stil else clamp01(0.45 * relatief + 0.55 * absoluut)
+        k = 0.0 if stil else self.kick_meting(t_blok)
+        self.kick_ruw = k
+        self.kick += (k - self.kick) * (0.6 if k > self.kick else 0.3)
+        if self.e_start is None:
+            self.e_start = t_blok
+        self.drop_zoeken(t_blok)
+        # energie zoals een lichtman hem voelt: vooral de kick, dan drukte/helderheid, dan hoe hard t.o.v. net
+        doel = 0.0 if stil else clamp01(0.45 * self.kick + 0.30 * absoluut + 0.25 * relatief)
         # drop: na een rustig stuk (laatste 6 s) ineens veel energie. Dit gebeurt op een rustigere versie
         # van de energie; de snelle versie (voor meter en show) zou ook bij kleine dipjes een drop zien.
         if self.e_traag is None:
             self.e_traag = doel
         else:
             self.e_traag += (doel - self.e_traag) * (0.35 if doel > self.e_traag else 0.07)
-        if self.e_start is None:
-            self.e_start = t_blok
         if (t_blok - self.e_start > 10.0 and self.e_traag > 0.65 and min(self.e_historie) < 0.35
-                and t_blok - self.laatste_drop > 10.0):
+                and t_blok - self.laatste_drop > 10.0 and not self.kick_aan):
             self.laatste_drop = t_blok
             self.stuur({"soort": "drop", "t": t_blok - 0.35})
         self.e_historie.append(self.e_traag)
@@ -258,8 +326,11 @@ class Analyse:
             self.energie = doel
         else:
             self.energie += (doel - self.energie) * (0.7 if doel > self.energie else 0.25)
-        self.stuur({"soort": "energie", "e": round(self.energie, 3), "t": t_blok,
-                    "luid": round(luid, 1), "druk": round(druk, 4), "hoog": round(helder, 4), "rel": round(relatief, 2)})
+        # de kick wordt over ~2 s gemeten: hij hoort bij het midden daarvan (kt)
+        self.stuur({"soort": "energie", "e": round(self.energie, 3), "t": t_blok, "kick": round(self.kick_ruw, 2),
+                    "kt": round(t_blok - KICK_VENSTER * HOP / SR / 2, 3),
+                    "abs": round(absoluut, 2), "luid": round(luid, 1), "druk": round(druk, 4), "hoog": round(helder, 4),
+                    "rel": round(relatief, 2)})
 
     def melodie(self, blok, t_blok):
         """Stuurt een 'noot'-bericht als de sterkste toon in het melodiebereik verandert."""

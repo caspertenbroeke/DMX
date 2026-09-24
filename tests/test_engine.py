@@ -62,7 +62,7 @@ def test_zelfde_uitvoer_als_versie_1():
 
 def test_migratie_v1():
     e = Engine(PI_SHOW)
-    assert e.data["versie"] == 3
+    assert e.data["versie"] == 4
     assert e.data["uitgangen"][0]["soort"] in ("opendmx", "usb")
     assert all(f["universe"] == 1 for f in e.data["fixtures"])
     assert "laser_20" in e.data["profielen"]
@@ -204,7 +204,7 @@ def test_laser_uit_oude_show_bijgewerkt():
     assert len(laser["kanalen"][5]["opties"]) == 12            # kanaal 6: kleur, 12 keuzes in de handleiding
     assert any(o["naam"] == "Animaties" for o in laser["kanalen"][18]["opties"])
     assert {"Lijn-effect", "Kantelen", "Tekenen"} <= {lk["naam"] for lk in laser["looks"]}
-    assert e.data["versie"] == 3
+    assert e.data["versie"] == 4
 
 
 def test_patroon_wisselt_op_de_beat():

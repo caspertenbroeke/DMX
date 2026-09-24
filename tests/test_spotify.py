@@ -101,9 +101,11 @@ def test_foutmeldingen_in_gewone_woorden():
 
 def test_spotify_instellingen_worden_gecontroleerd():
     e = Engine(None)
-    assert e.data["spotify"]["aan"] is None and e.data["spotify"]["voorsprong"] == 4.0
+    assert e.data["spotify"]["aan"] is None and e.data["spotify"]["voorsprong"] == 8.0
     nieuw = e.normaliseer({"versie": 3, "spotify": {"aan": True, "naam": "  Wagen   1 ", "voorsprong": 99}})
-    assert nieuw["spotify"] == {"aan": True, "naam": "Wagen 1", "apparaat": None, "voorsprong": 10.0, "zeroconf_poort": 0}
+    assert nieuw["spotify"] == {"aan": True, "naam": "Wagen 1", "apparaat": None, "voorsprong": 20.0, "zeroconf_poort": 0}
+    oud = e.normaliseer({"versie": 3, "spotify": {"aan": True, "voorsprong": 4.0}, "show": {"energie": {"aan": False}}})
+    assert oud["spotify"]["voorsprong"] == 8.0 and oud["show"]["energie"]["aan"]     # eenmalig naar de nieuwe standaard
     assert "spotify" not in e.export()
 
 
@@ -183,23 +185,33 @@ def test_spotify_speaker_met_nep_librespot(tmp_path, monkeypatch):
 
 
 def test_opbouw_naar_een_drop_die_eraan_komt():
+    """Met voorsprong weet de lichtman dat de drop eraan komt: opbouw op de maat, gat, flits, vol gas."""
     e = Engine(None)
-    e.data["show"]["energie"]["aan"] = True
+    e.bpm_t0 = 0.0
     nu = time.time()
-    e.beat_bericht({"soort": "energie", "bron": "connect", "t": nu + 2.0, "e": 0.9})
-    e.beat_bericht({"soort": "drop", "bron": "connect", "t": nu + 3.0})
+    drop = nu + 6.0
+    vertraging = e.data["show"]["beat"]["vertraging_connect"] / 1000.0
+    for i in range(-100, 120):                       # metingen van 10 s terug tot 12 s vooruit, elke 0,1 s
+        t = nu + i / 10
+        kick = 1.0 if t >= drop - vertraging else 0.0
+        e.beat_bericht({"soort": "energie", "bron": "connect", "t": t, "kt": t, "kick": kick,
+                        "e": 0.8 if kick else 0.2 + 0.03 * max(0, i)})
+    e.beat_bericht({"soort": "drop", "bron": "connect", "t": drop - vertraging})
     e.render(nu)
-    assert e.energie != 0.9                             # nog niet te horen
-    e.render(nu + 2.1)
-    assert e.energie == 0.9
-    drop = nu + 3.0 + e.data["show"]["beat"]["vertraging_connect"] / 1000.0
-    helder = []
-    for i in range(40):                                 # laatste 2 seconden voor de drop: knipperen
-        e.render(drop - 2.0 + i * 0.045)
-        assert e.opbouw is not None and 0 <= e.opbouw < 1
-        helder.append(sum(e.frames[1]))
-    assert len(set(helder)) > 2
+    assert e.lm["sectie"] == "opbouw"
+    voortgang, helder = [], []
+    for i in range(50):                              # laatste 5 s voor de drop
+        t = drop - 5.0 + i * 0.1
+        e.render(t)
+        if t < drop - 0.35:
+            assert e.opbouw is not None
+            voortgang.append(e.opbouw)
+            helder.append(sum(e.frames[1]))
+    assert voortgang == sorted(voortgang) and voortgang[-1] > 0.9
+    assert len(set(helder)) > 3                      # knippert steeds sneller
     e.render(drop - 0.1)
-    assert e.opbouw is not None
+    assert e.gat and [e.frames[1][k] for k in (0, 4, 8, 12)] == [0, 0, 0, 0]   # vlak voor de drop: dimmers dicht
     e.render(drop + 0.1)
-    assert e.opbouw is None and e.drop_nu              # de flits
+    assert e.drop_nu and e.opbouw is None            # de flits
+    e.render(drop + 2.0)
+    assert e.lm["sectie"] == "drop" and e.punch > 0.5

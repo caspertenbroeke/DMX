@@ -11,6 +11,7 @@ Lagen, van onder naar boven:
 import copy
 import hashlib
 import json
+import math
 import os
 import random
 import secrets
@@ -20,6 +21,7 @@ from collections import deque
 
 from .effecten import (ATTRIBUUT_MODI, BEWEGING_MODI, INTENSITEIT_MODI, KLEUR_MODI, attribuut_effect,
                        beweging_effect, bruikbare_opties, clamp, hex_rgb, intensiteit_effect, kleur_effect, rgb_hex)
+from .lichtman import SECTIES, Lichtman
 from .profielen import (ATTRIBUUT_FUNCTIES, FUNCTIES, KLEURFUNCTIES, STANDAARD_PROFIELEN, byte, koppen,
                         schoon_profiel)
 
@@ -86,15 +88,27 @@ STANDAARD_SHOW = {
     "auto": {"aan": False, "elke": 32},
     "beat": {"auto": True, "vertraging_spotify": 200, "vertraging_mpd": 400, "vertraging_audio": 0, "vertraging_connect": 40,
              "bpm_min": 75, "bpm_max": 220, "snel_herkennen": True},
-    "energie": {"aan": False, "flits_bij_drop": True, "opbouw_voor_drop": True},
+    # de lichtman (show volgt de muziek): contrast 0 = doet bijna niets, 100 = rustig heel rustig en drops heel wild
+    "energie": {"aan": True, "flits_bij_drop": True, "opbouw_voor_drop": True, "contrast": 70},
     "groepen": {},
+    "lagen": {},           # groep -> {"eigen": bool, "kleur", "intensiteit", "beweging"}: eigen patronen per laag
     "attributen": {},      # functie (patroon, rotatie, …) -> {"modus", "elke", "keuzes"}
 }
-EFFECT_SLEUTELS = ("kleur", "intensiteit", "beweging", "looks", "attributen")
+EFFECT_SLEUTELS = ("kleur", "intensiteit", "beweging", "looks", "attributen", "lagen")
+LAAG_SLEUTELS = ("kleur", "intensiteit", "beweging")
 OUDE_PROFIELNAMEN = {"Laser 20 kanalen": "laser_20"}   # naam in shows van vóór versie 3
-OPBOUW_MAX = 3.5        # seconden: zo lang bouwt de show op naar een drop die al aankomt
+# auto-show per sectie van het nummer (de lichtman kiest dan zelf wat bij het moment past)
+AUTO_PER_SECTIE = {
+    "rustig": (["fade", "verloop", "regenboog", "wissel"], ["aan", "ademen", "golf"], ["cirkel", "acht", "zwaai", "linksrechts"]),
+    "groove": (["wissel", "chase", "fade", "split", "melodie"], ["aan", "golf", "om_en_om", "linksrechts", "chase", "puls"],
+               ["cirkel", "acht", "linksrechts", "opneer"]),
+    "drop": (["chase", "wissel", "random", "split", "regenboog_stap"],
+             ["chase", "pingpong", "dubbel_chase", "om_en_om", "flits", "sparkle", "random", "midden_uit"],
+             ["ballyhoo", "vierkant", "spiraal", "acht", "cirkel", "knik"]),
+}
+AUTO_PER_SECTIE["break"] = AUTO_PER_SECTIE["opbouw"] = AUTO_PER_SECTIE["rustig"]
 # Spotify-speaker (desktop-app): aan = None betekent "nog niet gekozen" (de app zet hem bij de eerste start aan)
-STANDAARD_SPOTIFY = {"aan": None, "naam": "DMXDesk", "apparaat": None, "voorsprong": 4.0, "zeroconf_poort": 0}
+STANDAARD_SPOTIFY = {"aan": None, "naam": "DMXDesk", "apparaat": None, "voorsprong": 8.0, "zeroconf_poort": 0}
 
 
 def samenvoegen(doel, bron):
@@ -107,6 +121,17 @@ def samenvoegen(doel, bron):
                     a.setdefault(fn, {}).update({x: y for x, y in cfg.items() if x in ("modus", "elke", "keuzes")})
         elif k in ("keuze", "groepen") and isinstance(v, dict):
             doel.setdefault(k, {}).update(v)
+        elif k == "lagen" and isinstance(v, dict):
+            lagen = doel.setdefault(k, {})
+            for naam, cfg in v.items():
+                naam = str(naam)[:60]
+                if cfg is None:
+                    lagen.pop(naam, None)             # laag weer laten volgen wat voor alle lampen geldt
+                elif isinstance(cfg, dict):
+                    if naam not in lagen:             # nieuwe laag: begint met de huidige instellingen
+                        lagen[naam] = {"eigen": False, **{s: copy.deepcopy(doel.get(s) or STANDAARD_SHOW[s])
+                                                          for s in LAAG_SLEUTELS}}
+                    samenvoegen(lagen[naam], cfg)
         elif isinstance(doel.get(k), dict) and isinstance(v, dict):
             samenvoegen(doel[k], v)
         elif k in doel:
@@ -126,7 +151,7 @@ def schone_spotify(cfg):
     return {"aan": None if cfg.get("aan") is None else bool(cfg.get("aan")),
             "naam": naam,
             "apparaat": str(cfg["apparaat"])[:200] if cfg.get("apparaat") else None,
-            "voorsprong": round(_getal(cfg.get("voorsprong"), 4.0, 0.0, 10.0), 1),
+            "voorsprong": round(_getal(cfg.get("voorsprong"), 8.0, 0.0, 20.0), 1),
             "zeroconf_poort": _getal(cfg.get("zeroconf_poort"), 0, 0, 65535, int)}
 
 
@@ -201,11 +226,14 @@ class Engine:
         self.energie, self.energie_gezien = 0.5, 0.0
         self.energie_attr = None
         self.energie_rij = deque(maxlen=400)   # (hoorbaar op, energie, bron): met voorsprong komen ze vooruit binnen
-        self.opbouw_van, self.opbouw = None, None
-        self.e_stap = 1.0                # snelheidsfactor door energie (0,5 / 1 / 2)
-        self.drop_van, self.drop_tot = 0.0, 0.0
-        self.vorige_beat, self.bew_fase = None, 0.0
+        self.lichtman = Lichtman()
+        self.lm = None                   # wat de lichtman nu zegt (sectie, opbouw, flits, …)
+        self.lm_glad = {"dim": 1.0, "bew_snel": 1.0, "bew_groot": 1.0}   # soepel naar het doel toe
+        self.lm_t = None
+        self.opbouw, self.gat, self.punch, self.adem = None, False, 0.0, 0.0
+        self.vorige_beat, self.bew_fasen = None, {}
         self.eff, self.drop_nu = None, False
+        self.muziek_beat = 0.0
         self.bevroren = False
         self._eff_f, self._eff_offset, self._eff_laatste = None, 0.0, None
         self.scene_actief, self.scene_vorig = None, {}
@@ -217,7 +245,7 @@ class Engine:
     # ------------------------------------------------------------ opslag
     def standaard(self):
         return {
-            "versie": 3,
+            "versie": 4,
             "naam": "Mijn show",
             "show": copy.deepcopy(STANDAARD_SHOW),
             "fixtures": copy.deepcopy(STANDAARD_FIXTURES),
@@ -251,10 +279,14 @@ class Engine:
         data["spotify"] = schone_spotify(data["spotify"])
         if int(geladen.get("versie", 1)) < 3:
             self.profielen_bijwerken(data["profielen"])
+        if int(geladen.get("versie", 1)) < 4:
+            data["show"]["energie"]["aan"] = True           # de lichtman staat voortaan standaard aan
+            if data["spotify"].get("voorsprong") == 4.0:   # oude standaard: nu 8 s (meer tijd om vooruit te horen)
+                data["spotify"]["voorsprong"] = 8.0
         data["instellingen"].setdefault("pin_hash", "")
         data["instellingen"].setdefault("pin_zout", secrets.token_hex(8))
         data["midi"].setdefault("koppelingen", {})
-        data["versie"] = 3
+        data["versie"] = 4
         self.groepen_bijwerken(data)
         return data
 
@@ -532,15 +564,19 @@ class Engine:
             soort = m.get("soort")
             if soort == "energie":
                 # pas laten gelden als je het hoort (met voorsprong komt het bericht seconden eerder binnen)
-                self.energie_rij.append((float(m.get("t", nu)) + vertraging, float(m.get("e", 0.5)), bron))
+                t = float(m.get("t", nu)) + vertraging
+                self.energie_rij.append((t, float(m.get("e", 0.5)), bron))
+                if m.get("kick") is not None:
+                    self.lichtman.punt(float(m.get("kt", m.get("t", nu))) + vertraging, float(m["kick"]),
+                                       float(m.get("e", 0.5)))
+                else:          # oude beat-luisteraar zonder kick-meting: alleen de energie
+                    self.lichtman.punt(t, 0.8 * float(m.get("e", 0.5)), float(m.get("e", 0.5)))
                 return
             if soort == "drop":
-                # na een rustig stuk barst het los: korte witte flits op het moment dat je het hoort.
-                # Komt het bericht (door de voorsprong) ruim van tevoren binnen, dan eerst een opbouw ernaartoe.
-                self.drop_van = float(m.get("t", nu)) + vertraging
-                self.drop_tot = self.drop_van + 0.4
-                self.opbouw_van = max(nu, self.drop_van - OPBOUW_MAX) if self.drop_van - nu > 1.0 else None
-                info["laatste_drop"] = self.drop_van
+                # na een stuk zonder kick komt hij terug: de lichtman bouwt ernaartoe op en flitst precies op de drop
+                t = float(m.get("t", nu)) + vertraging
+                self.lichtman.drop(t)
+                info["laatste_drop"] = t
                 return
             if soort == "noot":
                 # melodie: onthouden wanneer deze noot te HOREN is (met de vertraging van de geluidsweg)
@@ -557,6 +593,9 @@ class Engine:
             bpm = float(m.get("bpm") or 0)
             if not cfg.get("auto") or bpm <= 0:
                 return
+            if self.data["show"]["energie"].get("aan") and \
+                    self.lichtman.tempo_vasthouden(float(m.get("t", nu)) + vertraging):
+                return          # break/opbouw: maat vasthouden tot de kick terug is
             laag, hoog = float(cfg.get("bpm_min", 75)), float(cfg.get("bpm_max", 220))
             # snel nummer? de beat-herkenning hoort dan vaak de helft; zit er een kick tússen de beats, dan verdubbelen
             ratio = m.get("kick_ratio")
@@ -591,17 +630,25 @@ class Engine:
     def auto_stap(self, beat):
         auto = self.data["show"]["auto"]
         if not auto.get("aan"):
-            self.auto_stap_nr = None
+            self.auto_stap_nr, self.auto_sectie = None, None
             return
         nr = int(beat // max(4, int(auto.get("elke", 32))))
-        if nr == self.auto_stap_nr:
+        sectie = self.lm["sectie"] if self.lm else None
+        # nieuwe look op de maat, én meteen als het nummer omslaat (drop!, of het wordt rustig)
+        grof = {"opbouw": "rustig", "break": "rustig"}.get(sectie, sectie)
+        omslag = grof != getattr(self, "auto_sectie", None) and sectie != "opbouw"
+        if nr == self.auto_stap_nr and not omslag:
             return
-        self.auto_stap_nr = nr
+        self.auto_stap_nr, self.auto_sectie = nr, grof
         show = self.data["show"]
-        show["kleur"].update(modus=random.choice(AUTO_KLEUR), palet=random.choice(AUTO_PALETTEN),
-                             snelheid=random.choice([0.5, 1, 2]))
-        show["intensiteit"].update(modus=random.choice(AUTO_INTENSITEIT), snelheid=random.choice([0.5, 1, 1, 2]))
-        show["beweging"].update(modus=random.choice(AUTO_BEWEGING), snelheid=random.choice([4, 8, 8, 16]))
+        kleuren, intens, bewegingen = AUTO_PER_SECTIE.get(sectie) or (AUTO_KLEUR, AUTO_INTENSITEIT, AUTO_BEWEGING)
+        palet = random.choice(AUTO_PALETTEN)
+        doelen = [show] + [lg for lg in (show.get("lagen") or {}).values() if lg.get("eigen")]
+        for cfg in doelen:
+            cfg["kleur"].update(modus=random.choice(kleuren), palet=palet if cfg is show else random.choice(AUTO_PALETTEN),
+                                snelheid=random.choice([0.5, 1, 2]))
+            cfg["intensiteit"].update(modus=random.choice(intens), snelheid=random.choice([0.5, 1, 1, 2]))
+            cfg["beweging"].update(modus=random.choice(bewegingen), snelheid=random.choice([4, 8, 8, 16]))
         self.wijziging += 1
 
     def energie_nu(self, nu):
@@ -609,45 +656,61 @@ class Engine:
             return None
         return self.energie
 
-    def energie_toepassen(self, show, beat, nu):
-        """Rustige muziek = langzaam, klein en wat gedimd. Extreem = snel, groot en vol."""
-        e = self.energie_nu(nu)
-        if e is None:
-            self.eff = {"kleur": show["kleur"], "intensiteit": show["intensiteit"], "beweging": show["beweging"], "dim": 1.0}
-            self.e_stap = 1.0
-        else:
-            # kleur/intensiteit in stappen (x2 trager / normaal / x2 sneller), met wat marge tegen heen-en-weer springen
-            if self.e_stap == 1.0:
-                self.e_stap = 0.5 if e > 0.78 else (2.0 if e < 0.27 else 1.0)
-            elif self.e_stap == 0.5 and e < 0.70:
-                self.e_stap = 1.0
-            elif self.e_stap == 2.0 and e > 0.35:
-                self.e_stap = 1.0
-            bew = show["beweging"]
-            self.eff = {
-                "kleur": dict(show["kleur"], snelheid=float(show["kleur"].get("snelheid", 1)) * self.e_stap),
-                "intensiteit": dict(show["intensiteit"], snelheid=float(show["intensiteit"].get("snelheid", 1)) * self.e_stap),
-                "beweging": dict(bew, snelheid=max(1.0, float(bew.get("snelheid", 8)) * 2 ** (1.5 - 3 * e)),
-                                 grootte=float(bew.get("grootte", 50)) * (0.35 + 0.65 * e)),
-                "dim": 0.55 + 0.45 * e,
+    def eigen_lagen(self):
+        return sorted(n for n, lg in (self.data["show"].get("lagen") or {}).items() if lg.get("eigen"))
+
+    def lichtman_toepassen(self, show, beat, nu):
+        """De lichtman bepaalt per moment hoe snel, fel en wild de show is; per laag met de eigen patronen."""
+        cfg_e = show["energie"]
+        st = self.lichtman.stand(nu, float(cfg_e.get("contrast", 70)) / 100.0) if cfg_e.get("aan") else None
+        self.lm = st
+        dt = 0.0 if self.lm_t is None else clamp(nu - self.lm_t, 0.0, 0.5)
+        self.lm_t = nu
+        prof = st["profiel"] if st else None
+        for k in self.lm_glad:
+            doel = prof[k] if prof else 1.0
+            snel = 1.0 if (st and (st["flits"] or st["sectie"] == "opbouw")) else min(1.0, dt / 0.8)
+            self.lm_glad[k] += (doel - self.lm_glad[k]) * snel
+
+        def traag(s, keer):
+            v = s * keer
+            return v if v <= 16 else max(s, 16.0)
+
+        def effecten(cfg):
+            kl, it, bw = cfg["kleur"], cfg["intensiteit"], cfg["beweging"]
+            if not prof:
+                return {"kleur": kl, "intensiteit": it, "beweging": bw, "dim": 1.0}
+            g = self.lm_glad
+            return {
+                "kleur": dict(kl, snelheid=traag(float(kl.get("snelheid", 1)), prof["kleur_stap"]), zacht=prof["zacht"]),
+                "intensiteit": dict(it, snelheid=traag(float(it.get("snelheid", 1)), prof["stap"]), zacht=prof["zacht"]),
+                "beweging": dict(bw, snelheid=max(1.0, float(bw.get("snelheid", 8)) * g["bew_snel"]),
+                                 grootte=float(bw.get("grootte", 50)) * g["bew_groot"]),
+                "dim": g["dim"],
             }
-        # beweging: fase optellen, dan geeft een snelheidswissel geen sprong in de positie
-        if self.vorige_beat is not None:
-            d = beat - self.vorige_beat
+
+        lagen = show.get("lagen") or {}
+        self.eff = {None: effecten(show)}
+        for naam in self.eigen_lagen():
+            self.eff[naam] = effecten(lagen[naam])
+        # beweging: fase optellen (per laag), dan geeft een snelheidswissel geen sprong in de positie
+        d = beat - self.vorige_beat if self.vorige_beat is not None else 0.0
+        for naam, eff in self.eff.items():
+            fase = self.bew_fasen.get(naam, 0.0)
             if -1 < d < 1:
-                self.bew_fase += d / max(0.25, float(self.eff["beweging"].get("snelheid", 8)))
+                fase += d / max(0.25, float(eff["beweging"].get("snelheid", 8)))
+            self.bew_fasen[naam] = fase
         self.vorige_beat = beat
-        self.drop_nu = (e is not None and show["energie"].get("flits_bij_drop", True)
-                        and self.drop_van <= nu < self.drop_tot)
-        # opbouw naar een drop die (dankzij de voorsprong) al aankomt: 0 = begin, 1 = de drop
-        self.opbouw = None
-        if (e is not None and show["energie"].get("opbouw_voor_drop", True) and self.opbouw_van is not None
-                and self.opbouw_van <= nu < self.drop_van):
-            self.opbouw = (nu - self.opbouw_van) / max(0.1, self.drop_van - self.opbouw_van)
+        self.drop_nu = bool(st and st["flits"] and cfg_e.get("flits_bij_drop", True))
+        opbouw_aan = bool(st and cfg_e.get("opbouw_voor_drop", True))
+        self.opbouw = st["opbouw"] if opbouw_aan and st["sectie"] == "opbouw" else None
+        self.gat = bool(opbouw_aan and st["gat"])
+        self.punch = prof["punch"] if prof else 0.0
+        self.adem = prof["adem"] if prof else 0.0
 
     # ------------------------------------------------------------ patch-overzicht (alleen opnieuw bij wijzigingen)
     def cache(self):
-        if self._cache is not None:
+        if self._cache is not None and self._cache["lagen"] == tuple(self.eigen_lagen()):
             return self._cache
         profielen = self.data["profielen"]
         fixtures = [f for f in self.data["fixtures"] if f.get("profiel") in profielen]
@@ -675,15 +738,24 @@ class Engine:
                 "rook": "smoke" in functies,
             }
         cellen.sort(key=lambda c: (c[0], c[1], c[2]))
-        index = {}
+        # lagen met eigen patronen: een chase loopt dan binnen de laag (en niet over alle lampen)
+        eigen = set(self.eigen_lagen())
+        laag_van = {f["id"]: ((f.get("groep") or "Overig") if (f.get("groep") or "Overig") in eigen else None)
+                    for f in volgorde}
+        index = {"laag": laag_van}
         for soort in ("kleur", "intensiteit"):
-            lijst = [c for c in cellen if c[3].get("effecten", {}).get(soort, True)]
-            index[soort] = {(c[1], c[2]): (i, len(lijst), c[0]) for i, c in enumerate(lijst)}
-        lijst = [f for f in volgorde if f.get("effecten", {}).get("beweging", True)]
-        index["beweging"] = {f["id"]: (i, len(lijst)) for i, f in enumerate(lijst)}
+            index[soort] = {}
+            for laag in {None} | eigen:
+                lijst = [c for c in cellen if c[3].get("effecten", {}).get(soort, True) and laag_van[c[1]] == laag]
+                index[soort].update({(c[1], c[2]): (i, len(lijst), c[0]) for i, c in enumerate(lijst)})
+        index["beweging"] = {}
+        for laag in {None} | eigen:
+            lijst = [f for f in volgorde if f.get("effecten", {}).get("beweging", True) and laag_van[f["id"]] == laag]
+            index["beweging"].update({f["id"]: (i, len(lijst)) for i, f in enumerate(lijst)})
         universes = sorted({int(f.get("universe", 1)) for f in fixtures} |
                            {int(u["universe"]) for u in self.data["uitgangen"]} | {1})
-        self._cache = {"volgorde": volgorde, "info": info, "index": index, "universes": universes}
+        self._cache = {"volgorde": volgorde, "info": info, "index": index, "universes": universes,
+                       "lagen": tuple(sorted(eigen))}
         return self._cache
 
     # ------------------------------------------------------------ scènes, cuelijsten, programmer
@@ -888,7 +960,8 @@ class Engine:
                 _, e_nieuw, bron = self.energie_rij.popleft()
                 self.energie, self.energie_gezien = e_nieuw, nu
                 self.luister.setdefault(bron, {"laatste_beat": 0.0}).update(energie=e_nieuw, laatste_energie=nu)
-            self.energie_toepassen(show, eb, nu)
+            self.muziek_beat = beat
+            self.lichtman_toepassen(show, eb, nu)
             self.energie_attr = self.energie if nu - self.energie_gezien < 5.0 else None
             c = self.cache()
             menging = self.scene_menging(nu)
@@ -915,22 +988,30 @@ class Engine:
         fid = fx["id"]
         sleutel = str(fid)
 
-        # 1. effecten per cel
+        # 1. effecten per cel (met de patronen van de laag van deze lamp)
+        laag = index["laag"].get(fid)
+        eff = self.eff.get(laag) or self.eff[None]
+        punch = 1.0
+        if self.punch > 0:                       # knal op elke kick (op de maat van de muziek)
+            punch = 1.0 - self.punch + self.punch * (1.0 - self.muziek_beat % 1.0) ** 2
         E, RGB = {}, {}
         for kop in inf["cellen"]:
             if (fid, kop) in index["intensiteit"]:
                 i, n, cx = index["intensiteit"][(fid, kop)]
-                E[kop] = intensiteit_effect(self.eff["intensiteit"], beat, i, n, cx, self.sinds_noot)
+                E[kop] = intensiteit_effect(eff["intensiteit"], beat, i, n, cx, self.sinds_noot) * punch
+                if self.adem > 0:              # rustig: langzame golf van links naar rechts (2 maten)
+                    golf = 0.5 + 0.5 * math.sin(2 * math.pi * (self.muziek_beat / 8.0 - cx / 100.0))
+                    E[kop] *= 1.0 - self.adem * golf
             else:
                 E[kop] = 1.0
             if (fid, kop) in index["kleur"]:
                 i, n, cx = index["kleur"][(fid, kop)]
-                RGB[kop] = kleur_effect(self.eff["kleur"], beat, i, n, self.melodie_nu, cx)
+                RGB[kop] = kleur_effect(eff["kleur"], beat, i, n, self.melodie_nu, cx)
             else:
                 RGB[kop] = (255, 255, 255)
         if fid in index["beweging"]:
             i, n = index["beweging"][fid]
-            pan, tilt = beweging_effect(self.eff["beweging"], self.bew_fase, i, n)
+            pan, tilt = beweging_effect(eff["beweging"], self.bew_fasen.get(laag, 0.0), i, n)
         else:
             pan, tilt = 0.5, 0.5
         stand = _Stand(E, RGB, pan, tilt)
@@ -947,20 +1028,23 @@ class Engine:
         if prog:
             stand.toepassen(prog)
 
-        # opbouw naar de drop: steeds sneller pulseren en naar wit, vlak voor de drop even donker
-        if self.opbouw is not None and fx.get("strobe", True):
-            if self.drop_van - nu < 0.25:
+        # opbouw naar de drop: op de maat steeds sneller (1, 2, 4, 8 keer per beat), feller en naar wit;
+        # vlak voor de drop even helemaal donker (het 'gat'), dan de flits
+        if fx.get("strobe", True) and not inf["rook"]:
+            if self.gat:
                 stand.E = {k: 0.0 for k in stand.E}
-            else:
+            elif self.opbouw is not None:
                 p = self.opbouw
-                puls = 1.0 if (nu * (2.0 + 14.0 * p * p)) % 1.0 < 0.5 else 0.15
-                wit = 0.8 * p
-                stand.E = {k: v * puls for k, v in stand.E.items()}
+                keer = 1 if p < 0.35 else 2 if p < 0.6 else 4 if p < 0.82 else 8
+                aan = (self.muziek_beat * keer) % 1.0 < 0.5
+                puls = 1.0 if aan else 0.1 + 0.4 * (1.0 - p)
+                wit = 0.75 * p * p
+                stand.E = {k: max(v, 0.3 + 0.7 * p) * puls for k, v in stand.E.items()}
                 stand.RGB = {k: tuple(c + (255 - c) * wit for c in rgb) for k, rgb in stand.RGB.items()}
 
         # 4. helderheid: master, groep, energie
         groep = clamp(float(show["groepen"].get(fx.get("groep") or "Overig", 100)), 0, 100) / 100.0
-        M = master * groep * self.eff["dim"]
+        M = master * groep * eff["dim"]
         cel_factor, kleur_vol = {}, {}
         for kop in inf["cellen"]:
             if not inf["koppen"]:
@@ -1336,6 +1420,15 @@ class Engine:
                 raise ValueError(f"Onbekende actie: {soort}")
 
     # ------------------------------------------------------------ status
+    def lichtman_info(self, nu):
+        st = self.lm
+        if not st:
+            return None
+        return {"sectie": st["sectie"], "naam": SECTIES.get(st["sectie"], st["sectie"]),
+                "opbouw": round(st["opbouw"], 2) if st["opbouw"] is not None else None,
+                "kick": st["kick"], "niveau": st["niveau"], "flits": st["flits"],
+                "drop_over": round(st["drop_t"] - nu, 1) if st["drop_t"] else None}
+
     def status_info(self):
         nu = time.time()
         with self.lock:
@@ -1375,6 +1468,7 @@ class Engine:
                              "niveau": round(i.get("niveau", 0), 4) if nu - i.get("gezien", 0) < 3.0 else 0,
                              "muziek": i.get("niveau", 0) > 0.005 and nu - i.get("gezien", 0) < 3.0}
                          for b, i in self.luister.items()},
+                lichtman=self.lichtman_info(nu),
             )
             s.update(self.extra_status)
         return s

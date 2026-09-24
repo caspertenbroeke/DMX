@@ -272,3 +272,15 @@ tr.gekozen td { background: rgba(255, 196, 0, .06); }
   .houd { height: 76px; font-size: 15px; }
   .dmxraster { grid-template-columns: repeat(8, minmax(0, 1fr)); }
 }
+
+/* lichtman: in welk deel van het nummer we zitten */
+.lichtman { display: flex; align-items: baseline; gap: 10px; margin: 2px 0 8px; }
+.lichtman b { font-size: 22px; letter-spacing: .5px; }
+.lichtman .sectie-rustig, .lichtman .sectie-break { color: #7fb4ff; }
+.lichtman .sectie-groove { color: var(--accent); }
+.lichtman .sectie-opbouw { color: #ff9a3c; }
+.lichtman .sectie-drop { color: #ff4d6d; }
+.chip.lm-rustig, .chip.lm-break { color: #7fb4ff; border-color: #7fb4ff55; }
+.chip.lm-groove { color: var(--accent); border-color: #ffc40055; }
+.chip.lm-opbouw { color: #ff9a3c; border-color: #ff9a3c88; }
+.chip.lm-drop { color: #fff; background: #ff4d6d; border-color: #ff4d6d; }
