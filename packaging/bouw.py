@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import time
 import zipfile
 
 HIER = os.path.dirname(os.path.abspath(__file__))
@@ -46,7 +47,14 @@ def main():
         os.makedirs(map_)
         run("ditto", app, os.path.join(map_, "DMXDesk.app"))
         os.symlink("/Applications", os.path.join(map_, "Programma's"))
-        run("hdiutil", "create", "-volname", "DMXDesk", "-srcfolder", map_, "-ov", "-format", "UDZO", dmg)
+        for poging in range(4):      # hdiutil faalt soms met 'Resource busy'; dan even wachten en opnieuw
+            try:
+                run("hdiutil", "create", "-volname", "DMXDesk", "-srcfolder", map_, "-ov", "-format", "UDZO", dmg)
+                break
+            except subprocess.CalledProcessError:
+                if poging == 3:
+                    raise
+                time.sleep(5)
         print("Klaar:", dmg)
     elif sys.platform == "win32":
         zipnaam = basis + ".zip"
