@@ -89,12 +89,14 @@ def open_venster(url, titel):
     """Eigen app-venster met pywebview. Geeft False als dat niet lukt (dan de browser)."""
     try:
         import webview
-    except Exception:
+    except Exception as e:
+        print("App-venster niet beschikbaar (pywebview):", e, flush=True)
         return False
     try:
         if hasattr(webview, "settings"):
             webview.settings["ALLOW_DOWNLOADS"] = True     # show exporteren
         webview.create_window(titel, url, width=1440, height=900, min_size=(960, 600), background_color="#0b0b0d")
+        print("App-venster wordt geopend", flush=True)
         webview.start()
         return True
     except Exception as e:

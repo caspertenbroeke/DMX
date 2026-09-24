@@ -50,6 +50,12 @@ jobs:
         run: pip install -r packaging/requirements-app.txt pyinstaller pillow
       - name: App bouwen
         run: python packaging/bouw.py ${{ matrix.naam }}
+      - name: App opstarten (moet lukken)
+        run: python packaging/rooktest.py
+      - name: App opstarten met venster (controle)
+        if: runner.os != 'Linux'
+        continue-on-error: true
+        run: python packaging/rooktest.py --venster
       - name: Windows-installer (Inno Setup)
         if: runner.os == 'Windows'
         shell: pwsh

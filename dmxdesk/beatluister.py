@@ -12,7 +12,6 @@ De app zelf gebruikt de klasse Analyse ook rechtstreeks voor de geluidskaart (zi
 
 Dit bestand moet op zichzelf kunnen draaien (op de Pi staat het in /usr/local/lib/zeutekauwn/).
 """
-import fcntl
 import json
 import os
 import select
@@ -365,8 +364,9 @@ def start_aplay():
     p = subprocess.Popen(["aplay", "-q", "-D", APLAY_DEVICE, "-t", "raw", "-f", "S16_LE", "-r", str(SR), "-c", "2",
                           "--buffer-time=150000"], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
     try:
+        import fcntl       # alleen Linux (de Pi); bestaat niet op Windows
         fcntl.fcntl(p.stdin.fileno(), F_SETPIPE_SZ, 8192)   # kleine pijp = weinig vertraging
-    except OSError:
+    except (ImportError, OSError):
         pass
     return p
 
