@@ -1,0 +1,18 @@
+[Unit]
+Description=DMXDesk (telefoon op poort 8080, bedieningspaneel op /desk)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=casper
+Group=casper
+SupplementaryGroups=dialout audio
+WorkingDirectory=/home/casper/dmxdesk
+Environment=DMXDESK_SHOW=/home/casper/dmxdesk/show.json
+Environment=DMXDESK_SYSTEEMKNOPPEN=1
+ExecStart=/usr/bin/python3 -u -m dmxdesk --server --poort 8080
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

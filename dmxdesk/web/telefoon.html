@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icoon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icoon.svg">
+<title>DMXDesk</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #fff; font-family: system-ui, -apple-system, sans-serif;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; }
+  body { display: flex; flex-direction: column; height: 100dvh; box-sizing: border-box;
+    padding: max(10px, env(safe-area-inset-top)) 12px max(10px, env(safe-area-inset-bottom)); gap: 10px; }
+  .kop { display: flex; gap: 6px; }
+  .kop button { flex: 1; background: #151518; color: #999; border: 1px solid #2a2a30; border-radius: 10px; padding: 9px; font-weight: 800;
+    font-size: 14px; letter-spacing: .5px; }
+  .kop button.aan { color: #000; background: #ffc400; border-color: #ffc400; }
+  .scherm { flex: 1; display: none; flex-direction: column; gap: 10px; min-height: 0; }
+  .scherm.aan { display: flex; }
+  .knop { flex: 1; border: 3px solid; border-radius: 20px; display: flex; align-items: center; justify-content: center;
+    text-align: center; font-size: clamp(26px, 9vw, 58px); font-weight: 900; letter-spacing: 2px; touch-action: none;
+    transition: transform .05s; min-height: 0; }
+  #smoke  { border-color: #5ac8fa; color: #5ac8fa; background: #06202b; }
+  #strobe { border-color: #fff;    color: #fff;    background: #1a1a1a; }
+  #beide  { border-color: #ffcc00; color: #ffcc00; background: #2a2200; }
+  .knop.aan { transform: scale(.97); color: #000 !important; }
+  #smoke.aan { background: #5ac8fa; } #strobe.aan { background: #fff; } #beide.aan { background: #ffcc00; }
+  .rijtje { display: flex; gap: 10px; flex: 0 0 64px; }
+  .rijtje .knop { font-size: clamp(16px, 5vw, 26px); border-width: 2px; border-radius: 14px; }
+  #blinder { border-color: #ff9f0a; color: #ff9f0a; background: #2a1a00; } #blinder.aan { background: #ff9f0a; }
+  #blackout { border-color: #ff453a; color: #ff453a; background: #2a0906; } #blackout.aan { background: #ff453a; color: #fff !important; }
+  .scenes { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; align-content: start; }
+  .scenes button, .snel button { background: #151518; color: #fff; border: 1px solid #2a2a30; border-left: 6px solid var(--k, #3a3a43);
+    border-radius: 12px; padding: 16px 12px; font-size: 16px; font-weight: 800; text-align: left; min-height: 64px; }
+  .scenes button.aan { border-color: #ffc400; box-shadow: 0 0 0 1px #ffc400; background: #2a2200; }
+  .scenes .titel { grid-column: 1 / -1; color: #888; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; margin: 8px 0 0; }
+  .snel { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .snel button { border-left-width: 1px; text-align: center; min-height: 52px; padding: 10px; font-size: 14px; }
+  .snel button.aan { background: #ffc400; color: #000; border-color: #ffc400; }
+  .master { display: flex; align-items: center; gap: 10px; color: #888; font-size: 13px; font-weight: 700; }
+  .master input { flex: 1; accent-color: #ffc400; height: 36px; }
+  .leeg { color: #777; text-align: center; padding: 30px 10px; grid-column: 1 / -1; }
+  .voet { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #888; }
+  .voet a { color: #aaa; padding: 6px 0; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #d33; margin-right: 6px; }
+  .dot.ok { background: #3c3; }
+  .pin { position: fixed; inset: 0; background: #000; display: flex; align-items: center; justify-content: center; z-index: 5; }
+  .pin form { width: min(320px, 90vw); text-align: center; }
+  .pin input { width: 100%; box-sizing: border-box; font-size: 32px; letter-spacing: 10px; text-align: center; padding: 12px;
+    background: #151518; color: #fff; border: 1px solid #333; border-radius: 12px; margin: 14px 0; }
+  .pin button { width: 100%; padding: 14px; font-size: 18px; font-weight: 800; border: 0; border-radius: 12px; background: #ffc400; color: #000; }
+</style>
+</head>
+<body>
+  <div class="kop"><button data-scherm="knoppen" class="aan">KNOPPEN</button><button data-scherm="scenes">SCÈNES</button></div>
+
+  <div class="scherm aan" id="knoppen">
+    <div class="knop" id="smoke" data-houd="smoke">SMOKE</div>
+    <div class="knop" id="strobe" data-houd="strobe">STROBE</div>
+    <div class="knop" id="beide" data-houd="smoke strobe">SMOKE<br>+ STROBE</div>
+    <div class="rijtje"><div class="knop" id="blinder" data-houd="blinder">BLINDER</div><div class="knop" id="blackout">BLACKOUT</div></div>
+  </div>
+
+  <div class="scherm" id="scenes">
+    <div class="scenes" id="sceneLijst"><div class="leeg">Laden…</div></div>
+    <div class="snel"><button id="los">SCÈNE LOS</button><button id="auto">AUTO-SHOW</button></div>
+    <div class="master">MASTER <input type="range" min="0" max="100" id="master"><span id="masterW">–</span></div>
+  </div>
+
+  <div class="voet">
+    <span><span class="dot" id="dot"></span><span id="tekst">verbinden…</span></span>
+    <a href="/desk">alles →</a>
+  </div>
+<script>
+  // Knoppen werken alleen zolang ze ingedrukt zijn. DMXDesk laat na 0,7 s zonder bericht vanzelf los.
+  const ingedrukt = new Map();   // vinger (pointerId) -> knop
+  let herhaal = null, status = null, scenes = null, wijziging = -1, masterBezig = false;
+
+  async function post(url, body) {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}), keepalive: true });
+    if (r.status === 401) pin();
+    return r;
+  }
+  function stuur() {
+    const soorten = new Set();
+    for (const k of ingedrukt.values()) k.dataset.houd.split(' ').forEach(s => soorten.add(s));
+    const actief = new Set(ingedrukt.values());
+    document.querySelectorAll('[data-houd]').forEach(k => k.classList.toggle('aan', actief.has(k)));
+    post('/api/hold', { smoke: soorten.has('smoke'), strobe: soorten.has('strobe'), blinder: soorten.has('blinder') }).catch(() => {});
+    return soorten.size > 0;
+  }
+  function houdVast() {
+    if (herhaal) return;
+    herhaal = setInterval(() => { if (!stuur()) { clearInterval(herhaal); herhaal = null; } }, 250);
+  }
+  document.querySelectorAll('[data-houd]').forEach(k => {
+    k.addEventListener('pointerdown', e => {
+      e.preventDefault(); k.setPointerCapture(e.pointerId);
+      ingedrukt.set(e.pointerId, k); stuur(); houdVast();
+      if (navigator.vibrate) navigator.vibrate(15);
+    });
+    const los = e => { if (ingedrukt.delete(e.pointerId)) stuur(); };
+    k.addEventListener('pointerup', los); k.addEventListener('pointercancel', los); k.addEventListener('lostpointercapture', los);
+  });
+  document.addEventListener('contextmenu', e => e.preventDefault());
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { ingedrukt.clear(); stuur(); } });
+
+  // schermen
+  document.querySelectorAll('[data-scherm]').forEach(b => b.onclick = () => {
+    document.querySelectorAll('[data-scherm]').forEach(x => x.classList.toggle('aan', x === b));
+    document.querySelectorAll('.scherm').forEach(s => s.classList.toggle('aan', s.id === b.dataset.scherm));
+    try { localStorage.setItem('dmxdesk-scherm', b.dataset.scherm); } catch (e) { /* privévenster */ }
+  });
+  try { const s = localStorage.getItem('dmxdesk-scherm'); if (s) document.querySelector(`[data-scherm="${s}"]`)?.click(); } catch (e) { /* privévenster */ }
+
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  function tekenScenes() {
+    if (!scenes) return;
+    const namen = Object.entries(scenes.scenes), cues = Object.keys(scenes.cuelijsten);
+    document.getElementById('sceneLijst').innerHTML = (namen.length ? namen.map(([n, sc]) =>
+      `<button data-scene="${esc(n)}" style="--k:${esc(sc.kleur || '#3a3a43')}" class="${status && status.scene === n ? 'aan' : ''}">${esc(n)}</button>`).join('')
+      : '<div class="leeg">Nog geen scènes. Maak ze op de computer (of via "alles").</div>')
+      + (cues.length ? '<p class="titel">Cuelijsten</p>' + cues.map(n =>
+        `<button data-cue="${esc(n)}" class="${status && status.cue && status.cue.lijst === n ? 'aan' : ''}">${status && status.cue && status.cue.lijst === n ? '■ ' : '▶ '}${esc(n)}</button>`).join('') : '');
+  }
+  document.getElementById('sceneLijst').onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.scene) post('/api/scene', { actie: 'laden', naam: b.dataset.scene }).then(ververs);
+    if (b.dataset.cue) post('/api/actie', { soort: 'cue', arg: b.dataset.cue }).then(ververs);
+  };
+  document.getElementById('los').onclick = () => post('/api/scene', { actie: 'loslaten' }).then(ververs);
+  document.getElementById('auto').onclick = () => post('/api/actie', { soort: 'auto' }).then(ververs);
+  document.getElementById('blackout').onclick = () => post('/api/actie', { soort: 'blackout' }).then(ververs);
+  const master = document.getElementById('master');
+  let masterTimer = 0;
+  master.oninput = () => {
+    masterBezig = true; document.getElementById('masterW').textContent = master.value;
+    const nu = Date.now(); if (nu - masterTimer > 80) { masterTimer = nu; post('/api/show', { master: Number(master.value) }); }
+  };
+  master.onchange = () => { post('/api/show', { master: Number(master.value) }); setTimeout(() => masterBezig = false, 500); };
+
+  // status
+  const dot = document.getElementById('dot'), tekst = document.getElementById('tekst');
+  async function ververs() {
+    try {
+      const r = await fetch('/api/status');
+      if (r.status === 401) return pin();
+      status = await r.json();
+      dot.classList.toggle('ok', status.dongle);
+      tekst.textContent = (status.dongle ? 'DMX verbonden' : 'geen DMX-uitgang') + ` · ${status.bpm} BPM`;
+      document.getElementById('blackout').classList.toggle('aan', status.blackout);
+      document.getElementById('auto').classList.toggle('aan', status.auto);
+      if (!masterBezig) { master.value = status.master; document.getElementById('masterW').textContent = status.master; }
+      if (status.wijziging !== wijziging) {
+        wijziging = status.wijziging;
+        const s = await fetch('/api/state?deel=licht'); if (s.ok) scenes = await s.json();
+      }
+      tekenScenes();
+    } catch (e) {
+      dot.classList.remove('ok');
+      tekst.textContent = 'geen verbinding met DMXDesk';
+    }
+  }
+  ververs(); setInterval(() => { if (!document.hidden) ververs(); }, 1000);
+
+  function pin() {
+    if (document.querySelector('.pin')) return;
+    const el = document.createElement('div'); el.className = 'pin';
+    el.innerHTML = '<form><h2>Pincode</h2><input type="password" inputmode="numeric" maxlength="8" autocomplete="current-password"><button>Openen</button><p id="pinFout" style="color:#ff453a"></p></form>';
+    document.body.appendChild(el);
+    el.querySelector('input').focus();
+    el.querySelector('form').onsubmit = async e => {
+      e.preventDefault();
+      const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: el.querySelector('input').value }) });
+      if (r.ok) { el.remove(); ververs(); } else el.querySelector('#pinFout').textContent = 'Verkeerde pincode';
+    };
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+build/
+dist/
+packaging/icoon.png
+packaging/icoon.ico
+*.tmp
+.pytest_cache/
+node_modules/
+/show.json
+/show.json.*

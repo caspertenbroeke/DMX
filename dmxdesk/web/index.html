@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0b0d">
+<meta name="color-scheme" content="dark">
+<title>DMXDesk</title>
+<link rel="icon" href="/static/icoon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="stylesheet" href="/static/desk.css">
+</head>
+<body>
+<header id="kop">
+  <div class="merk"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="/static/icoon.svg#logo"/></svg><span>DMXDesk</span><small id="showNaam"></small></div>
+  <div class="kopstatus">
+    <button class="chip" id="kDmx" data-ga="uitgangen" title="DMX-uitgangen"><i class="dot"></i><span>DMX</span></button>
+    <div class="bpmblok" title="Tempo (spatiebalk = tap)">
+      <i class="beatlamp" id="kBeat"></i><b id="kBpm">–</b><small>BPM</small>
+      <button class="klein" id="kTap">TAP</button>
+    </div>
+    <div class="emini" title="Energie van de muziek"><i id="kEnergie"></i></div>
+    <span class="chip accent" id="kScene" hidden></span>
+    <span class="chip" id="kCue" hidden></span>
+    <button class="chip blauw" id="kProg" data-ga="programmer" hidden></button>
+    <span class="chip wit" id="kHold" hidden></span>
+  </div>
+  <div class="kopknoppen">
+    <button id="kFreeze" title="Effecten bevriezen (F)">FREEZE</button>
+    <button id="kBlackout" class="gevaar" title="Blackout (B)">BLACKOUT</button>
+  </div>
+</header>
+<nav id="menu"></nav>
+<main id="inhoud"><div class="laden">DMXDesk laden…</div></main>
+<div id="verbinding" hidden>Geen verbinding met DMXDesk… opnieuw proberen</div>
+<div id="toasts"></div>
+<script type="module" src="/static/js/main.js"></script>
+</body>
+</html>

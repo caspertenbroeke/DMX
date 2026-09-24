@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dmxdesk"
+version = "2.0.0"
+description = "DMX-lichtsturing: scènes, effecten op de beat, moving heads, LED-bars, laser en rook. Bediening via app, browser en telefoon."
+readme = "LEESMIJ.md"
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.21", "pyserial>=3.5"]
+
+[project.optional-dependencies]
+app = ["sounddevice>=0.4.6", "qrcode>=7.4", "mido>=1.3", "python-rtmidi>=1.5",
+       "pywebview>=5.0; sys_platform == 'win32' or sys_platform == 'darwin'"]
+
+[project.scripts]
+dmxdesk = "dmxdesk.app:main"
+
+[tool.setuptools]
+packages = ["dmxdesk"]
+
+[tool.setuptools.package-data]
+dmxdesk = ["web/*", "web/js/*", "web/js/tabs/*", "data/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
