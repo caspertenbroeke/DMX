@@ -11,6 +11,7 @@ import mimetypes
 import os
 import secrets
 import socket
+import socketserver
 import sys
 import threading
 import time
@@ -395,6 +396,12 @@ def systeem_actie(engine, actie):
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = sys.platform != "win32"   # op Windows zou een tweede DMXDesk dezelfde poort kunnen pakken
+
+    def server_bind(self):
+        # HTTPServer zoekt hier de computernaam op in DNS (socket.getfqdn); dat kan op een Mac lang duren
+        # en is niet nodig
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = "dmxdesk", self.server_address[1]
 
 
 def maak_server(app, poort):

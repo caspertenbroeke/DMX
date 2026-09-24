@@ -9,6 +9,8 @@
 Telefoons en tablets op hetzelfde wifi-netwerk openen http://<ip-van-deze-computer>:<poort>/
 """
 import argparse
+import faulthandler
+import io
 import json
 import os
 import signal
@@ -114,6 +116,13 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if not args.server:
         logbestand_als_nodig()
+    stapsgewijs = sys.stderr is not None and hasattr(sys.stderr, "fileno")
+    if stapsgewijs:
+        try:     # vastlopen of crashen tijdens het opstarten: waar precies komt in het logbestand
+            faulthandler.enable(file=sys.stderr)
+            faulthandler.dump_traceback_later(20, file=sys.stderr)
+        except (ValueError, OSError, AttributeError, io.UnsupportedOperation):
+            stapsgewijs = False
 
     poort_gekozen = args.poort is not None
     poort = args.poort or STANDAARD_POORT
@@ -152,6 +161,8 @@ def main(argv=None):
     except (ValueError, AttributeError):
         pass
 
+    if stapsgewijs:
+        faulthandler.cancel_dump_traceback_later()
     url = f"http://127.0.0.1:{poort}/desk"
     print(f"{NAAM} draait op poort {poort}", flush=True)
     for adres in lan_adressen(poort):
