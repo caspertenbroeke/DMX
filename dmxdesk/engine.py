@@ -677,7 +677,7 @@ class Engine:
         with self.lock:
             if nummer_begint is not None:
                 self.lichtman.nieuw_nummer(nummer_begint)
-            self.lichtman.leer(momenten)
+            self.lichtman.leer(momenten, nu=time.time())     # vervangt wat eerder (voor een andere plek) gepland was
 
     def vergeet_geleerd(self):
         with self.lock:

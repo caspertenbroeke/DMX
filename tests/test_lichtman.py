@@ -232,3 +232,17 @@ def test_knop_opbouw_blijft_aan_tot_drop():
     assert gehoord == [("opbouw", True), ("drop", False)]
     with pytest.raises(ValueError):
         e.lichtman_knop("iets")
+
+
+def test_geleerde_momenten_vervangen_en_drop_knop_stopt_opbouw():
+    lm = Lichtman()
+    lm.leer([(110.0, 125.0)], nu=100.0)              # eerst (even) de plek van het vorige nummer
+    lm.leer([(130.0, 140.0), (None, 200.0)], nu=100.0)   # meteen daarna de juiste: vervangt
+    assert lm.geleerd == [(130.0, 140.0)] and sorted(lm.drops) == [140.0, 200.0]
+    assert lm.stand(135.0)["sectie"] == "opbouw"
+    lm.knop_drop(136.0)                               # zelf eerder op DROP: de geleerde opbouw stopt
+    st = lm.stand(137.0)
+    assert st["sectie"] in ("drop", "extreem") and not lm.geleerd
+    lm.verschuif(150.0, 5.0)                          # pauze: de geleerde drop schuift mee
+    lm.vergeet_geleerd(150.0)
+    assert list(lm.drops) == [136.0]                  # de geleerde weg, de gedrukte blijft

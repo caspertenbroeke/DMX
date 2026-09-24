@@ -88,6 +88,7 @@ class Lichtman:
         self.nummer_start = -1e9           # begin van het huidige nummer (drops tellen, 'hard' bepalen)
         self.hand_opbouw = None            # knop OPBOUW ingedrukt: sinds wanneer (tot DROP)
         self.geleerd = []                  # (begin opbouw, drop) die voor dit nummer geleerd zijn
+        self.geleerde_drops = []           # de drops die daarvan in self.drops staan
         self._t, self._basis = None, None
 
     # ------------------------------------------------------------ invoer
@@ -115,22 +116,36 @@ class Lichtman:
     def knop_drop(self, nu):
         """DROP: nu is de drop (flits, en dan vol gas)."""
         self.hand_opbouw = None
-        self.drops = deque([d for d in self.drops if abs(d - nu) >= 2.0], maxlen=32)
+        # een geleerde opbouw waar je nu in zit stopt ook, en zijn drop (die had hij later verwacht) vervalt
+        vervalt = {d for b, d in self.geleerd if b <= nu < d + 2.0}
+        self.geleerd = [(b, d) for b, d in self.geleerd if d not in vervalt]
+        weg = lambda d: abs(d - nu) < 2.0 or (d in vervalt and d in self.geleerde_drops)
+        self.drops = deque([d for d in self.drops if not weg(d)], maxlen=32)
+        self.geleerde_drops = [d for d in self.geleerde_drops if not weg(d)]
         self.drops.append(nu)
         self._t = None
 
-    def leer(self, momenten):
-        """Geleerde momenten voor het nummer dat nu klinkt: [(begin opbouw of None, drop), ...] in echte tijd."""
+    def leer(self, momenten, nu=None):
+        """Geleerde momenten voor het nummer dat nu klinkt: [(begin opbouw of None, drop), ...] in echte tijd.
+        Met nu: vervangt wat er eerder geleerd was voor ná nu (ander nummer of andere plek erin)."""
+        if nu is not None:
+            self._geleerd_weg(nu)
         for begin, d in momenten:
             if not any(abs(d - x) < 2.0 for x in self.drops):
                 self.drops.append(d)
+                self.geleerde_drops.append(d)
             if begin is not None and begin < d:
                 self.geleerd.append((begin, d))
         self._t = None
 
+    def _geleerd_weg(self, nu):
+        weg = [d for d in self.geleerde_drops if d > nu]
+        self.drops = deque([d for d in self.drops if d not in weg], maxlen=32)
+        self.geleerde_drops = [d for d in self.geleerde_drops if d <= nu]
+        self.geleerd = [(b, d) for b, d in self.geleerd if d <= nu]
+
     def vergeet_geleerd(self, nu):
-        self.geleerd = []
-        self.drops = deque([d for d in self.drops if d <= nu], maxlen=32)
+        self._geleerd_weg(nu)
         self._t = None
 
     def drop(self, t, stil=None):
@@ -152,6 +167,7 @@ class Lichtman:
         for d in [d for d in self.drops if d >= t]:
             self.drops.remove(d)
         self.geleerd = [(b, d) for b, d in self.geleerd if d < t]
+        self.geleerde_drops = [d for d in self.geleerde_drops if d < t]
         self._t = None
 
     def tempo_vasthouden(self, t):
@@ -172,6 +188,7 @@ class Lichtman:
         if self.hand_opbouw is not None and self.hand_opbouw >= van:
             self.hand_opbouw += duur
         self.drops = deque((d + duur if d >= van else d for d in self.drops), maxlen=32)
+        self.geleerde_drops = [d + duur if d >= van else d for d in self.geleerde_drops]
         if self.opbouw_van is not None and self.opbouw_van >= van:
             self.opbouw_van += duur
         if self.opbouw_drop is not None and self.opbouw_drop >= van:
