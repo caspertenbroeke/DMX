@@ -105,6 +105,7 @@ def zonder_venster():
             proc.wait(10)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.wait()
         log.seek(0)
         print("---- uitvoer van de app ----\n" + log.read())
     if not ok:
@@ -128,6 +129,7 @@ def met_venster():
             proc.wait(10)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.wait()
     log = open(logpad, encoding="utf-8", errors="replace").read() if os.path.exists(logpad) else "(geen logbestand)"
     print("---- logbestand ----\n" + log)
     if not ok:
