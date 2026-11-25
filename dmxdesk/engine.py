@@ -83,7 +83,7 @@ STANDAARD_SHOW = {
     "tempo_factor": 1,
     "fade": 1.0,
     "kleur": {"modus": "chase", "palet": ["#ff0000", "#0000ff"], "snelheid": 1, "spreiding": 50},
-    "intensiteit": {"modus": "aan", "snelheid": 1, "lengte": 3, "staart": 2},
+    "intensiteit": {"modus": "aan", "snelheid": 1, "lengte": 3, "staart": 2, "helderheid": 100},
     "beweging": {"modus": "cirkel", "snelheid": 8, "grootte": 50, "spreiding": 50, "pan": 50, "tilt": 50},
     "looks": {"modus": "wissel", "elke": 16, "keuze": {}},
     "auto": {"aan": False, "elke": 32},
@@ -138,7 +138,7 @@ def samenvoegen(doel, bron):
                     samenvoegen(lagen[naam], cfg)
         elif isinstance(doel.get(k), dict) and isinstance(v, dict):
             samenvoegen(doel[k], v)
-        elif k in doel or k in ("lengte", "staart", "auto"):     # (ook in lagen van vóór die instellingen)
+        elif k in doel or k in ("lengte", "staart", "auto", "helderheid"):     # (ook in lagen van vóór die instellingen)
             doel[k] = v
 
 
@@ -1254,7 +1254,8 @@ class Engine:
 
         # 4. helderheid: master, groep, energie
         groep = clamp(float(show["groepen"].get(fx.get("groep") or "Overig", 100)), 0, 100) / 100.0
-        M = master * groep * eff["dim"]
+        helder = clamp(float(eff["intensiteit"].get("helderheid", 100) or 0), 0, 100) / 100.0   # per laag (in de scène)
+        M = master * groep * eff["dim"] * helder
         cel_factor, kleur_vol = {}, {}
         for kop in inf["cellen"]:
             if not inf["koppen"]:

@@ -343,3 +343,17 @@ def test_laag_opslaan_als_scene_neemt_alleen_die_lampen():
     assert set(e.data["scenes"]["Per ongeluk"]["effecten"]) == {"lagen"}
     with pytest.raises(ValueError):
         e.scene_opslaan("X", "effecten", laag="Pars")             # Pars heeft geen eigen patronen
+
+
+def test_helderheid_per_laag_en_in_de_scene():
+    e = Engine(None)
+    e.data["show"]["energie"]["aan"] = False
+    e.voeg_lijn_toe(4, "drgb_4")
+    e.wijzig_show({"lagen": {"Lijn": {"eigen": True, "intensiteit": {"modus": "aan", "helderheid": 40}}},
+                   "intensiteit": {"modus": "aan"}})
+    lijn = next(f for f in e.data["fixtures"] if f["groep"] == "Lijn")
+    par = next(f for f in e.data["fixtures"] if f["naam"] == "Par 1")
+    frame = e.render(time.time())[1]
+    assert 95 < frame[lijn["adres"] - 1] < 110 and frame[par["adres"] - 1] == 255     # 40% alleen voor de lijn
+    e.scene_opslaan("Lijn zacht", "effecten", laag="Lijn")
+    assert e.data["scenes"]["Lijn zacht"]["effecten"]["lagen"]["Lijn"]["intensiteit"]["helderheid"] == 40
