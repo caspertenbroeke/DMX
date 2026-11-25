@@ -1,7 +1,10 @@
 name: DMXDesk bouwen
 
-# Bij elke push: testen en de app bouwen voor Windows, macOS en Linux (te downloaden onder "Artifacts").
-# Bij een versie-tag (bijv. v2.0.0): ook een GitHub-release maken met de downloads.
+# Bij elke push: alleen testen (snel). De app bouwen voor Windows, macOS en Linux (te downloaden onder
+# "Artifacts") gebeurt alleen als je erom vraagt:
+#   - met de knop "Run workflow" op GitHub (Actions → DMXDesk bouwen), of
+#   - met [bouw] in het commitbericht, of
+#   - bij een versie-tag (bijv. v2.0.0): dan komt er ook een GitHub-release met de downloads.
 on:
   push:
     branches: ["**"]
@@ -25,6 +28,9 @@ jobs:
 
   bouwen:
     needs: testen
+    if: >-
+      github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') ||
+      contains(github.event.head_commit.message, '[bouw]')
     strategy:
       fail-fast: false
       matrix:
