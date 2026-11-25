@@ -925,7 +925,9 @@ class Engine:
             self.cue = None
             self.gewijzigd(opslaan=False)
 
-    def scene_opslaan(self, naam, inhoud="beide", fixtures=None, fade=None, kleur=""):
+    def scene_opslaan(self, naam, inhoud="beide", fixtures=None, fade=None, kleur="", laag=None):
+        """laag: alleen de effecten van die laag (groep) bewaren. Zo'n scène 'heeft' alleen die lampen;
+        de auto-show doet de rest."""
         naam = str(naam).strip()[:40]
         if not naam:
             raise ValueError("Geef de scène een naam")
@@ -939,8 +941,15 @@ class Engine:
                     raise ValueError("De programmer is leeg: stel eerst lampen in")
             oud = self.data["scenes"].get(naam, {})
             effecten = {k: copy.deepcopy(show[k]) for k in EFFECT_SLEUTELS} if inhoud in ("effecten", "beide") else None
-            if effecten and set((oud.get("effecten") or {})) == {"lagen"}:
-                effecten = {"lagen": effecten["lagen"]}     # scène van alleen lagen (bal-cues): zo houden
+            lagen = show.get("lagen") or {}
+            if effecten and laag:
+                if not (lagen.get(laag) or {}).get("eigen"):
+                    raise ValueError(f"{laag} heeft geen eigen patronen: kies eerst 'Eigen patronen voor {laag}'")
+                effecten = {"lagen": {laag: copy.deepcopy(lagen[laag])}}
+            elif effecten and set((oud.get("effecten") or {})) == {"lagen"}:
+                # scène van alleen lagen (bal-cues, of eerder één laag bewaard): alleen díe lagen, zo houden
+                effecten = {"lagen": {n: copy.deepcopy(lagen[n]) for n in oud["effecten"]["lagen"] if n in lagen}
+                            or copy.deepcopy(oud["effecten"]["lagen"])}
             self.data["scenes"][naam] = {"effecten": effecten, "vast": vast,
                                          "fade": _getal(fade if fade is not None else oud.get("fade", show.get("fade", 1)), 1, 0, 60),
                                          "kleur": str(kleur or oud.get("kleur") or "")[:7]}

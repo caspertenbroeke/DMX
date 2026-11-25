@@ -307,7 +307,7 @@ class Handler(BaseHTTPRequestHandler):
             actie, naam = body.get("actie"), str(body.get("naam", ""))
             if actie == "opslaan":
                 e.scene_opslaan(naam, body.get("inhoud", "beide"), body.get("fixtures"), body.get("fade"),
-                                body.get("kleur", ""))
+                                body.get("kleur", ""), body.get("laag") or None)
             elif actie == "laden":
                 e.laad_scene(naam, body.get("fade"))
             elif actie == "verwijderen":

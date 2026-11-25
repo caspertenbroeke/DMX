@@ -318,3 +318,28 @@ def test_scene_gaat_voor_de_auto_show_tot_je_hem_loslaat():
     e.wijzig_show({"lagen": {"Pars": {"eigen": True}}})
     e.wijzig_show({"lagen": {"Pars": {"auto": False}}})        # per laag kan de auto-show er ook vast af
     assert e.data["show"]["lagen"]["Pars"]["auto"] is False
+
+
+def test_laag_opslaan_als_scene_neemt_alleen_die_lampen():
+    import random
+    random.seed(5)
+    e = Engine(None)
+    e.voeg_lijn_toe(20, "drgb_4")
+    e.wijzig_show({"lagen": {"Lijn": {"eigen": True, "intensiteit": {"modus": "bal"}, "kleur": {"modus": "vast", "palet": ["#ff0000"]}}}})
+    e.scene_opslaan("Mijn lijn", "effecten", laag="Lijn")
+    assert set(e.data["scenes"]["Mijn lijn"]["effecten"]) == {"lagen"}
+    assert set(e.data["scenes"]["Mijn lijn"]["effecten"]["lagen"]) == {"Lijn"}
+    e.data["show"]["auto"]["aan"] = True
+    e.laad_scene("Mijn lijn")
+    rest = set()
+    for k in range(8):
+        e.auto_stap(k * 40.0)
+        rest.add(e.data["show"]["intensiteit"]["modus"])
+    assert len(rest) > 1 and e.data["show"]["lagen"]["Lijn"]["intensiteit"]["modus"] == "bal"
+    # per ongeluk als 'alle lampen' bewaard: met 'alleen laag Lijn bewaren' weer goed te zetten
+    e.scene_opslaan("Per ongeluk", "effecten")
+    assert set(e.data["scenes"]["Per ongeluk"]["effecten"]) > {"lagen"}
+    e.scene_opslaan("Per ongeluk", "effecten", laag="Lijn")
+    assert set(e.data["scenes"]["Per ongeluk"]["effecten"]) == {"lagen"}
+    with pytest.raises(ValueError):
+        e.scene_opslaan("X", "effecten", laag="Pars")             # Pars heeft geen eigen patronen

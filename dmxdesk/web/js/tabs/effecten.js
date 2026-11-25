@@ -91,7 +91,7 @@ function teken(el) {
   const lookProfielen = Object.entries(S.profielen).filter(([pid, p]) => p.looks && p.looks.length && S.fixtures.some(f => f.profiel === pid));
   el.innerHTML = `
   <div class="paginakop"><h1>Effecten</h1><span class="hint">Alles loopt op de beat. Een scène bewaart deze instellingen.</span><span class="vul"></span>
-    <button id="efScene" class="primair">Opslaan als scène…</button></div>
+    <button id="efScene" class="primair">${heeftEigen(laag) ? `Laag ${esc(laag)} opslaan als scène…` : 'Opslaan als scène…'}</button></div>
   <div id="efSceneBalk"></div>
   <div class="raster">
     ${laagBlok()}
@@ -213,7 +213,10 @@ function sceneBalk(st) {
       <span class="vul"></span>
       ${cue ? '<button id="efCuePauze">⏸ Cuelijst pauzeren</button>' : ''}
       <button id="efSceneLos">Loslaten</button>
-      <button class="primair" id="efSceneBewaar" data-naam="${esc(st.scene)}">Bewaren in "${esc(st.scene)}"</button></div>` : '';
+      ${heeftEigen(laag) && Object.keys(K.S.scenes[st.scene].effecten || {}).some(k => k !== 'lagen')
+        ? `<button id="efSceneBewaar" data-naam="${esc(st.scene)}" data-alles="1">Bewaren (alle lampen)</button>
+           <button class="primair" id="efSceneBewaar2" data-naam="${esc(st.scene)}" data-laag="${esc(laag)}">Alleen laag ${esc(laag)} bewaren</button>`
+        : `<button class="primair" id="efSceneBewaar" data-naam="${esc(st.scene)}">Bewaren in "${esc(st.scene)}"</button>`}</div>` : '';
   if (html !== balkWas) { el.innerHTML = html; balkWas = html; }
 }
 
@@ -253,10 +256,11 @@ export default {
       if (b.id === 'efLaagEigen') { await doe('/api/show', { lagen: { [laag]: { eigen: true } } }); await laadState(); return teken(el); }
       if (b.id === 'efCuePauze') return doe('/api/cue', { actie: 'pauze' });
       if (b.id === 'efSceneLos') { await doe('/api/scene', { actie: 'loslaten' }); await laadState(); return teken(el); }
-      if (b.id === 'efSceneBewaar') {
+      if (b.id === 'efSceneBewaar' || b.id === 'efSceneBewaar2') {
         const naam = b.dataset.naam, sc = K.S.scenes[naam] || {};
-        return doe('/api/scene', { actie: 'opslaan', naam, inhoud: Object.keys(sc.vast || {}).length ? 'beide' : 'effecten',
-          fade: sc.fade, kleur: sc.kleur }, `Bewaard in scène "${naam}"`);
+        await doe('/api/scene', { actie: 'opslaan', naam, inhoud: Object.keys(sc.vast || {}).length ? 'beide' : 'effecten',
+          fade: sc.fade, kleur: sc.kleur, laag: b.dataset.laag || null }, `Bewaard in scène "${naam}"`);
+        await laadState(); return teken(el);
       }
       if (b.id === 'efLaagWeg') { await doe('/api/show', { lagen: { [laag]: null } }); await laadState(); return teken(el); }
       if (b.dataset.set !== undefined && b.dataset.val !== undefined) {
@@ -265,8 +269,11 @@ export default {
       }
       if (b.id === 'efTap') return doe('/api/tap', {});
       if (b.id === 'efScene') {
-        const naam = await invoer('Huidige effecten opslaan als scène', '', 'Kleur, intensiteit, beweging en looks worden bewaard.');
-        if (naam) doe('/api/scene', { actie: 'opslaan', naam, inhoud: 'effecten' }, 'Scène opgeslagen');
+        const alleenLaag = heeftEigen(laag) ? laag : null;
+        const naam = await invoer(alleenLaag ? `Laag ${alleenLaag} opslaan als scène` : 'Alle lampen opslaan als scène', '',
+          alleenLaag ? `Alleen de lampen van ${alleenLaag} komen in de scène. Als hij geladen is, blijft de auto-show daarvan af en doet de rest.`
+            : 'Kleur, intensiteit, beweging en looks van alle lampen. Als hij geladen is, staat de auto-show stil tot je hem loslaat. (Alleen een groep? Kies eerst die laag.)');
+        if (naam) doe('/api/scene', { actie: 'opslaan', naam, inhoud: 'effecten', laag: alleenLaag }, 'Scène opgeslagen');
         return;
       }
       if (b.dataset.bpm) return zetShow('bpm', Math.round(K.S.show.bpm) + Number(b.dataset.bpm));

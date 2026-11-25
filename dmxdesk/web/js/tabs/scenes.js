@@ -22,7 +22,9 @@ function tekenScenes() {
       <td style="white-space:nowrap"><button class="stil icoon" data-omhoog="${i}" ${i ? '' : 'disabled'}>↑</button><button class="stil icoon" data-omlaag="${i}" ${i < lijst.length - 1 ? '' : 'disabled'}>↓</button></td>
       <td style="width:56px"><input type="color" value="${sc.kleur || '#3a3a43'}" data-sckleur="${i}"></td>
       <td><input value="${esc(n)}" data-scnaam="${i}"></td>
-      <td class="hint">${[sc.effecten ? 'effecten' : '', Object.keys(sc.vast).length ? Object.keys(sc.vast).length + ' lampen vast' : ''].filter(Boolean).join(' + ') || 'leeg'}</td>
+      <td class="hint">${[!sc.effecten ? '' : Object.keys(sc.effecten).some(k => k !== 'lagen') ? 'alle lampen'
+          : 'alleen ' + Object.keys(sc.effecten.lagen || {}).map(esc).join(', '),
+        Object.keys(sc.vast).length ? Object.keys(sc.vast).length + ' lampen vast' : ''].filter(Boolean).join(' + ') || 'leeg'}</td>
       <td style="width:90px"><input type="number" min="0" max="60" step="0.1" value="${sc.fade}" data-scfade="${i}"></td>
       <td style="white-space:nowrap"><button data-laad="${esc(n)}" class="${st.scene === n ? 'aan' : ''}">Laden</button>
         ${sc.effecten ? `<button data-bewerk="${esc(n)}" title="Laden en de kleur, het patroon en de snelheid aanpassen">Aanpassen</button>` : ''}
@@ -128,7 +130,7 @@ export default {
   teken(el) {
     C = null;
     el.innerHTML = `<div class="paginakop"><h1>Scènes</h1><span class="vul"></span>
-        <button id="scNieuw" class="primair">Huidige effecten opslaan als scène…</button></div>
+        <button id="scNieuw" class="primair" title="Voor één groep: kies in Effecten eerst die laag">Alle lampen opslaan als scène…</button></div>
       <div class="stapel"><div class="blok"><h2>Scènes</h2><div id="scLijst"></div>
         <p class="hint">Sneltoetsen 1–9 en 0 laden de eerste tien scènes. Esc laat de scène los.</p></div>
       <div class="blok"><h2>Cuelijsten</h2><div id="clBlok"></div></div></div>`;
