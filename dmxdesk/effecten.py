@@ -58,7 +58,8 @@ STAP_KLEUR = {"wissel", "chase", "split", "regenboog_stap", "random"}
 # ---------------------------------------------------------------- intensiteit
 
 INTENSITEIT_MODI = [
-    ("aan", "Alles aan"), ("noot_puls", "♪ Puls op melodie"), ("trein", "Treintje →"), ("trein_terug", "Treintje ←"),
+    ("aan", "Alles aan"), ("noot_puls", "♪ Puls op melodie"), ("bal", "Bal heen en weer"), ("bal_heen", "Bal →"),
+    ("bal_terug", "Bal ←"), ("ballen", "Twee ballen"), ("trein", "Treintje →"), ("trein_terug", "Treintje ←"),
     ("trein_heen_weer", "Treintje heen en weer"), ("treinen", "Treintjes"), ("chase", "Chase"), ("chase_terug", "Chase terug"),
     ("pingpong", "Ping-pong"), ("dubbel_chase", "Dubbele chase"), ("om_en_om", "Om en om"),
     ("linksrechts", "Links/Rechts"), ("binnenbuiten", "Binnen/Buiten"), ("midden_uit", "Midden → buiten"),
@@ -69,6 +70,36 @@ INTENSITEIT_MODI = [
 
 
 TREIN_MODI = {"trein", "trein_terug", "trein_heen_weer", "treinen"}
+BAL_MODI = {"bal", "bal_heen", "bal_terug", "ballen"}
+
+
+def bal(cfg, beat, i, n):
+    """Een bal die door de zaal vliegt: één felle kop met een korte veeg erachter (`staart` lampen).
+    snelheid = beats voor één keer de hele lijn over (½ = twee keer per beat)."""
+    m = cfg.get("modus", "bal")
+    staart = clamp(float(cfg.get("staart", 2) or 0), 0, 16)
+    t = beat / max(0.0625, float(cfg.get("snelheid", 1)))      # hoeveel keer de lijn over
+    lang = max(1, n - 1)
+
+    def plek(t):
+        if m in ("bal_heen", "bal_terug"):           # schiet erdoor, helemaal de lijn uit, en komt weer aan het begin
+            p, r = (t % 1.0) * (lang + staart + 2) - 1, 1
+            return (n - 1 - p, -1) if m == "bal_terug" else (p, r)
+        f = t % 2.0                                 # heen en weer, stuitert op de uiteinden
+        return (f * lang, 1) if f < 1.0 else ((2.0 - f) * lang, -1)
+
+    koppen = [plek(t)]
+    if m == "ballen":                               # twee ballen die elkaar in het midden kruisen
+        p, r = koppen[0]
+        koppen.append((n - 1 - p, -r))
+    v = 0.0
+    for p, r in koppen:
+        d = (p - i) * r                             # > 0: de bal is hier al langs (staart), < 0: komt eraan
+        if abs(d) < 1.0:                            # (tussen twee lampen in: allebei vol, niet allebei half)
+            v = max(v, min(1.0, 2.0 * (1.0 - abs(d))))
+        if 0 < d < staart + 1:
+            v = max(v, 0.75 * (1.0 - d / (staart + 1.0)) ** 2)
+    return v
 
 
 def trein(cfg, beat, i, n):
@@ -107,6 +138,8 @@ def intensiteit_effect(cfg, beat, i, n, x, sinds_noot=None):
     n = max(1, n)
     if m in TREIN_MODI:
         return trein(cfg, beat, i, n)
+    if m in BAL_MODI:
+        return bal(cfg, beat, i, n)
     zacht = float(cfg.get("zacht") or 0)
     if zacht > 0:
         hard = dict(cfg, zacht=0)

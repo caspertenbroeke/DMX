@@ -298,9 +298,11 @@ class Handler(BaseHTTPRequestHandler):
         elif pad == "/api/profiel-import":
             inhoud = body.get("inhoud", "")
             return {"profielen": [{"modus": m, "profiel": p} for m, p in importeer_bestand(body.get("naam", ""), inhoud)]}
-        elif pad == "/api/trein-cues":
-            groep, namen = e.maak_trein_cues(body.get("groep") or None, body.get("beats", 16))
-            return {"groep": groep, "scenes": namen, "cuelijst": "Treintje"}
+        elif pad == "/api/bal-cues":
+            groep, namen = e.maak_bal_cues(body.get("groep") or None, body.get("beats", 16))
+            return {"groep": groep, "scenes": namen, "cuelijst": "Bal"}
+        elif pad == "/api/lijn":
+            return e.voeg_lijn_toe(body.get("aantal", 20), body.get("profiel"), body.get("groep") or "Lijn")
         elif pad == "/api/scene":
             actie, naam = body.get("actie"), str(body.get("naam", ""))
             if actie == "opslaan":

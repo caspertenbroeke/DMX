@@ -168,14 +168,14 @@ je OPBOUW en DROP drukte, en de volgende keer dat dat nummer draait doet hij het
 vlak na de vorige nog eens, dan verbetert hij het moment. *Vergeet* (bij *Effecten → Lichtman*) wist wat hij voor
 het huidige nummer geleerd heeft; alles staat in `geleerd.json` in de DMXDesk-map van je gebruiker.
 
-## Treintje: lampen in een lijn
+## Bal door de zaal: lampen in een lijn
 
-Hang de lampen in een lijn (bijvoorbeeld 15 dwars door de tent) en zet ze in de Patch in één groep, bijv. **Lijn**
-(*+ Lamp toevoegen*, *Aantal* 15: ze krijgen meteen opeenvolgende adressen en staan van links naar rechts). Klik bij
-*Scènes → Cuelijsten* op **🚂 Treintje-cues…**, kies de groep en hoe lang elke cue duurt. Je krijgt 8 scènes en een
-cuelijst *Treintje*: een treintje van een paar lampen rijdt met een uitdovende staart door de lijn (naar rechts, naar
-links, heen en weer, meerdere achter elkaar, een sneltrein, een regenboogtrein…). De andere lampen doen gewoon hun eigen
-ding. Zelf instellen kan ook: *Effecten*, kies de laag, intensiteit **Treintje** met snelheid, lengte en staart.
+Hang de lampen in een lijn, bijvoorbeeld 20 dwars door de tent. Klik bij *Scènes → Cuelijsten* op **🏐 Bal-cues…**:
+vink *eerst een nieuwe lijn lampen toevoegen* aan (aantal, soort lamp, groepnaam) of kies een groep die je al hebt, en
+klik *Maken*. Je krijgt 8 scènes en een cuelijst *Bal*: een felle bal met een korte veeg vliegt door de lijn (heen en
+weer, eroverheen geschoten naar rechts of links, twee ballen die elkaar kruisen, kleurwissel bij elke oversteek, een
+regenboogbal, en "knal" vier keer per beat). De andere lampen doen gewoon hun eigen ding. Zelf instellen: *Effecten*,
+kies de laag, intensiteit **Bal** (of **Treintje** voor een rustiger blok lampen) met de snelheid en de veeg.
 De volgorde is die op het *Podium* (links → rechts); sleep de lampen daar als ze anders hangen.
 
 ## Beweging per lamp

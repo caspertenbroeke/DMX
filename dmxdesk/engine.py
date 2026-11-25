@@ -921,48 +921,84 @@ class Engine:
                                          "kleur": str(kleur or oud.get("kleur") or "")[:7]}
             self.gewijzigd()
 
-    # treintje-cues: een lijn lampen waar een treintje doorheen rijdt, in verschillende kleuren en richtingen
-    TREIN_CUES = [
-        # naam, patroon, lengte, staart, snelheid (beats per lamp), kleur-modus, palet
-        ("Trein → rood", "trein", 3, 2, 0.5, "vast", ["#ff0000"]),
-        ("Trein ← blauw", "trein_terug", 3, 2, 0.5, "vast", ["#0000ff"]),
-        ("Trein heen en weer", "trein_heen_weer", 3, 3, 0.5, "vast", ["#ff6600"]),
-        ("Treintjes wit", "treinen", 2, 2, 0.25, "vast", ["#ffffff"]),
-        ("Regenboogtrein", "trein", 4, 3, 0.5, "regenboog", ["#ff0000", "#0000ff"]),
-        ("Sneltrein", "trein", 1, 4, 0.25, "vast", ["#00ffff"]),
-        ("Lange trein paars", "trein_heen_weer", 6, 4, 1, "vast", ["#8800ff"]),
-        ("Treintjes rood/blauw", "treinen", 3, 1, 0.5, "chase", ["#ff0000", "#0000ff"]),
+    # bal-cues: een lijn lampen (bijv. 20 dwars door de tent) waar een bal snel doorheen vliegt
+    BAL_CUES = [
+        # naam, patroon, snelheid (beats per keer de lijn over), staart, kleur-modus, palet
+        ("Bal wit", "bal", 1, 2, "vast", ["#ffffff"]),
+        ("Bal snel rood", "bal", 0.5, 3, "vast", ["#ff0000"]),
+        ("Bal kleurwissel", "bal", 1, 2, "wissel", ["#ff0000", "#0000ff", "#00ff00", "#ffcc00"]),
+        ("Schot →", "bal_heen", 0.5, 4, "vast", ["#00ffff"]),
+        ("Schot ←", "bal_terug", 0.5, 4, "vast", ["#ff00ff"]),
+        ("Twee ballen", "ballen", 1, 2, "vast", ["#ffffff"]),
+        ("Bal regenboog", "bal", 0.5, 3, "regenboog", ["#ff0000", "#0000ff"]),
+        ("Bal knal", "bal", 0.25, 5, "wissel", ["#ffffff", "#ff0000"]),
     ]
 
-    def maak_trein_cues(self, groep=None, beats=16):
-        """Scènes met een treintje door de lampen van `groep` (op volgorde van links naar rechts in Podium),
-        plus een cuelijst 'Treintje' die ze elke `beats` beats afwisselt. Geeft (groep, namen) terug."""
+    def maak_bal_cues(self, groep=None, beats=16):
+        """Scènes met een bal die door de lampen van `groep` vliegt (volgorde: links naar rechts op het Podium),
+        plus een cuelijst 'Bal' die ze elke `beats` beats afwisselt. Geeft (groep, namen) terug."""
         with self.lock:
-            lampen = [f for f in self.data["fixtures"] if f.get("effecten", {}).get("intensiteit", True)]
             tel = {}
-            for f in lampen:
-                tel[f.get("groep") or "Overig"] = tel.get(f.get("groep") or "Overig", 0) + 1
+            for f in self.data["fixtures"]:
+                if f.get("effecten", {}).get("intensiteit", True):
+                    g = f.get("groep") or "Overig"
+                    tel[g] = tel.get(g, 0) + 1
             if groep is None:
                 groep = max(tel, key=tel.get) if tel else None
             if not groep or tel.get(groep, 0) < 2:
-                raise ValueError("Zet eerst minstens 2 lampen in deze groep (Patch); het treintje rijdt door die groep")
+                raise ValueError("Zet eerst minstens 2 lampen in deze groep (Patch); de bal vliegt door die groep")
             beweging = copy.deepcopy(self.data["show"]["beweging"])
             namen = []
-            for naam, modus, lengte, staart, snelheid, kleur, palet in self.TREIN_CUES:
+            for naam, modus, snelheid, staart, kleur, palet in self.BAL_CUES:
                 laag = {"eigen": True,
-                        "intensiteit": {"modus": modus, "snelheid": snelheid, "lengte": lengte, "staart": staart},
-                        "kleur": {"modus": kleur, "palet": list(palet), "snelheid": 1, "spreiding": 100},
+                        "intensiteit": {"modus": modus, "snelheid": snelheid, "lengte": 1, "staart": staart},
+                        # bij 'wissel': elke keer dat de bal de lijn over is een andere kleur
+                        "kleur": {"modus": kleur, "palet": list(palet), "snelheid": snelheid, "spreiding": 0 if kleur == "wissel" else 100},
                         "beweging": beweging}
                 self.data["scenes"][naam] = {"effecten": {"lagen": {groep: laag}}, "vast": {}, "fade": 0.0,
                                              "kleur": palet[0]}
                 namen.append(naam)
-            self.data["cuelijsten"]["Treintje"] = {
+            self.data["cuelijsten"]["Bal"] = {
                 "stappen": [{"scene": n, "duur": float(beats), "fade": 0.0} for n in namen],
                 "eenheid": "beats", "herhalen": True}
             self.data["scenes"] = self.schone_scenes(self.data["scenes"])
             self.data["cuelijsten"] = self.schone_cuelijsten(self.data["cuelijsten"])
             self.gewijzigd()
             return groep, namen
+
+    def voeg_lijn_toe(self, aantal, profiel, groep="Lijn", y=50):
+        """`aantal` lampen in een lijn dwars over het podium (links → rechts), op vrije adressen achter elkaar."""
+        aantal = int(_getal(aantal, 20, 2, 64, int))
+        groep = str(groep or "Lijn").strip()[:30] or "Lijn"
+        with self.lock:
+            prof = self.data["profielen"].get(profiel)
+            if prof is None:
+                raise ValueError("Kies een lamptype")
+            n = len(prof["kanalen"])
+            if n * aantal > 512:
+                raise ValueError(f"{aantal} × {n} kanalen past niet in één universe (512)")
+            bezet = {}
+            for f in self.data["fixtures"]:
+                k = len(self.data["profielen"].get(f["profiel"], {"kanalen": [0]})["kanalen"])
+                bezet.setdefault(int(f.get("universe", 1)), []).append((int(f["adres"]), int(f["adres"]) + k - 1))
+            for universe in range(1, 65):         # eerste universe met een vrij blok dat groot genoeg is
+                start, vrij = 1, None
+                for a, b in sorted(bezet.get(universe, [])):
+                    if a - start >= n * aantal:
+                        break
+                    start = max(start, b + 1)
+                if start + n * aantal - 1 <= 512:
+                    vrij = start
+                    break
+            if vrij is None:
+                raise ValueError("Geen vrije plek voor zoveel kanalen")
+            fid = max([f["id"] for f in self.data["fixtures"]] + [0]) + 1
+            nieuw = [fixture(fid + k, f"{groep} {k + 1}", profiel, vrij + n * k, groep,
+                             round(3 + 94 * k / (aantal - 1)), y, universe=universe, breedte=4)
+                     for k in range(aantal)]
+            lijst = self.data["fixtures"] + nieuw
+        self.zet_fixtures(lijst)
+        return {"groep": groep, "universe": universe, "adres": vrij, "kanalen": n * aantal}
 
     def scene_verwijderen(self, naam):
         with self.lock:

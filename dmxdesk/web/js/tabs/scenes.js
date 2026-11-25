@@ -41,7 +41,7 @@ function tekenCues() {
     <div class="rij" style="margin-top:0">
       <select id="clKeuze" style="flex:1;min-width:160px">${namen.map(n => `<option ${n === cueKeuze ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
       <button id="clNieuw">+ Nieuwe cuelijst</button>
-      <button id="clTrein" title="Scènes en een cuelijst met een treintje door een lijn lampen">🚂 Treintje-cues…</button>
+      <button id="clBal" title="Scènes en een cuelijst met een bal die door een lijn lampen vliegt">🏐 Bal-cues…</button>
       ${cl ? `<button class="gevaar" id="clWeg">Verwijderen</button>` : ''}
       <button class="primair" id="clOpslaan" ${vuil() ? '' : 'disabled'}>Opslaan</button>
     </div>
@@ -70,28 +70,47 @@ async function cuesOpslaan() {
   catch (e) { toast(e.message, true); }
 }
 
-function treinCues() {
+function balCues() {
   const tel = {};
   K.S.fixtures.filter(f => f.effecten?.intensiteit !== false).forEach(f => { const g = f.groep || 'Overig'; tel[g] = (tel[g] || 0) + 1; });
   const groepen = Object.entries(tel).filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]);
-  if (!groepen.length) return toast('Zet eerst een paar lampen in één groep (Patch → + Lamp toevoegen, Aantal 15, groep bv. "Lijn")', true);
-  const voorkeur = (groepen.find(([g]) => /lijn|trein/i.test(g)) || groepen[0])[0];
+  const voorkeur = (groepen.find(([g]) => /lijn/i.test(g)) || groepen[0] || [''])[0];
+  const profielen = Object.entries(K.S.profielen).filter(([, p]) => ['par', 'dimmer', 'bar', 'strobe'].includes(p.soort) || p.kanalen.length <= 8)
+    .map(([id, p]) => [id, p.naam || id]);
+  const nieuw = !groepen.some(([g, n]) => /lijn/i.test(g) && n >= 8);
   dialoog({
-    titel: '🚂 Treintje-cues maken',
-    html: `<p class="hint">Een treintje van een paar lampen rijdt door de groep, met een uitdovende staart: naar rechts, naar links,
-        heen en weer, meerdere treintjes, sneltrein en regenboog. Het rijdt op volgorde van links naar rechts zoals de lampen
-        in <b>Podium</b> staan; de andere lampen doen gewoon hun eigen ding. Je krijgt 8 scènes (begint met "Trein"/"Treintjes")
-        en een cuelijst <b>Treintje</b> die ze afwisselt. Bestaan ze al, dan worden ze vervangen.</p>
-      <div class="rij"><label>Groep (de lijn)</label><select id="trGroep">${groepen.map(([g, n]) =>
+    titel: '🏐 Bal-cues maken',
+    html: `<p class="hint">Een felle bal vliegt door een lijn lampen: heen en weer, eroverheen geschoten, twee ballen die elkaar
+        kruisen, met kleurwissel elke keer dat hij de zaal over is. Snel: meestal één keer de hele lijn over per beat. De bal vliegt
+        in de volgorde van links naar rechts zoals de lampen op het <b>Podium</b> staan; de andere lampen doen hun eigen ding.
+        Je krijgt 8 scènes en een cuelijst <b>Bal</b> die ze afwisselt (bestaan ze al, dan worden ze vervangen).</p>
+      <label class="check"><input type="checkbox" id="balNieuw" ${nieuw ? 'checked' : ''}> eerst een nieuwe lijn lampen toevoegen</label>
+      <div id="balLijn" ${nieuw ? '' : 'hidden'}>
+        <div class="rij"><label>Aantal lampen</label><input id="balAantal" type="number" min="2" max="64" value="20" style="width:90px"></div>
+        <div class="rij"><label>Soort lamp</label><select id="balProfiel">${profielen.map(([id, n]) =>
+          `<option value="${esc(id)}" ${id === 'drgb_4' ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
+        <div class="rij"><label>Groepnaam</label><input id="balGroepNaam" value="Lijn" style="width:140px"></div>
+        <p class="hint">Ze krijgen vrije adressen achter elkaar (dat zie je daarna in de Patch) en komen op een rij op het Podium.</p>
+      </div>
+      <div class="rij" id="balBestaand" ${nieuw ? 'hidden' : ''}><label>Groep (de lijn)</label><select id="balGroep">${groepen.map(([g, n]) =>
         `<option value="${esc(g)}" ${g === voorkeur ? 'selected' : ''}>${esc(g)} (${n} lampen)</option>`).join('')}</select></div>
-      <div class="rij"><label>Elke cue duurt</label><select id="trBeats">${[8, 16, 32, 64].map(b =>
+      <div class="rij"><label>Elke cue duurt</label><select id="balBeats">${[8, 16, 32, 64].map(b =>
         `<option value="${b}" ${b === 16 ? 'selected' : ''}>${b} beats</option>`).join('')}</select></div>
-      <label class="check"><input type="checkbox" id="trStart" checked> meteen starten</label>`,
+      <label class="check"><input type="checkbox" id="balStart" checked> meteen starten</label>`,
+    bijOpen: d => { $('#balNieuw', d.el).onchange = e => { $('#balLijn', d.el).hidden = !e.target.checked; $('#balBestaand', d.el).hidden = e.target.checked; }; },
     knoppen: [{ tekst: 'Annuleren' }, { tekst: 'Maken', klasse: 'primair', actie: async d => {
-      const groep = $('#trGroep', d.el).value, beats = Number($('#trBeats', d.el).value), start = $('#trStart', d.el).checked;
+      const start = $('#balStart', d.el).checked, beats = Number($('#balBeats', d.el).value);
       try {
-        const r = await api('/api/trein-cues', { groep, beats });
-        toast(`${r.scenes.length} treintje-scènes en cuelijst "${r.cuelijst}" gemaakt voor ${r.groep}`);
+        let groep = $('#balGroep', d.el)?.value;
+        if ($('#balNieuw', d.el).checked) {
+          const r = await api('/api/lijn', { aantal: Number($('#balAantal', d.el).value), profiel: $('#balProfiel', d.el).value,
+            groep: $('#balGroepNaam', d.el).value.trim() || 'Lijn' });
+          groep = r.groep;
+          toast(`${$('#balAantal', d.el).value} lampen toegevoegd in groep ${r.groep}: universe ${r.universe}, adres ${r.adres}–${r.adres + r.kanalen - 1}`);
+        }
+        if (!groep) { toast('Kies een groep of voeg een nieuwe lijn toe', true); return false; }
+        const r = await api('/api/bal-cues', { groep, beats });
+        toast(`${r.scenes.length} bal-scènes en cuelijst "${r.cuelijst}" gemaakt voor ${r.groep}`);
         await laadState(true);
         C = kloon(K.S.cuelijsten); cueKeuze = r.cuelijst; tekenScenes(); tekenCues();
         if (start) await doe('/api/cue', { actie: 'start', naam: r.cuelijst });
@@ -133,7 +152,7 @@ export default {
         await scenesOpslaan(lijst); tekenScenes();
       }
       // cuelijsten
-      else if (b.id === 'clTrein') treinCues();
+      else if (b.id === 'clBal') balCues();
       else if (b.id === 'clNieuw') {
         const naam = await invoer('Naam van de nieuwe cuelijst', 'Cuelijst ' + (Object.keys(C).length + 1));
         if (!naam) return;

@@ -248,28 +248,32 @@ def test_geleerde_momenten_vervangen_en_drop_knop_stopt_opbouw():
     assert list(lm.drops) == [136.0]                  # de geleerde weg, de gedrukte blijft
 
 
-def test_treintje_cues_door_een_lijn_van_15_lampen():
-    from dmxdesk.engine import fixture
+def test_lijn_van_20_lampen_en_bal_cues():
     e = Engine(None)
     e.data["show"]["energie"]["aan"] = False                      # alleen het patroon bekijken
-    lijn = [fixture(100 + k, f"Lijn {k + 1}", "drgb_4", 101 + 4 * k, "Lijn", 90 - 5 * k) for k in range(15)]
-    e.zet_fixtures(e.data["fixtures"] + lijn)                      # (expres van rechts naar links ingevoerd)
-    groep, namen = e.maak_trein_cues()
-    assert groep == "Lijn" and len(namen) == 8 and e.data["cuelijsten"]["Treintje"]["stappen"][0]["scene"] == namen[0]
-    e.cue_start("Treintje")
-    lijn = sorted(lijn, key=lambda f: f["x"])                      # links → rechts in de tent
+    r = e.voeg_lijn_toe(20, "drgb_4")
+    lijn = sorted([f for f in e.data["fixtures"] if f["groep"] == "Lijn"], key=lambda f: f["x"])
+    assert len(lijn) == 20 and r["adres"] == 71 and lijn[-1]["adres"] == 71 + 19 * 4      # na de rookmachine (70)
+    assert lijn[0]["x"] < lijn[-1]["x"]
+    groep, namen = e.maak_bal_cues()
+    assert groep == "Lijn" and len(namen) == 8 and e.data["cuelijsten"]["Bal"]["stappen"][0]["scene"] == "Bal wit"
+    e.cue_start("Bal")
     tel = 60 / e.data["show"]["bpm"]
-    koppen = []
-    for b in (2.0, 3.0, 4.0):                                      # snelheid ½ beat per lamp: elke beat 2 lampen verder
+    plekken = []
+    for b in (0.25, 0.5, 0.75, 1.5):                               # 1 beat = de hele lijn over, dan terug
         frame = e.render(e.bpm_t0 + b * tel)[1]
         helder = [frame[f["adres"] - 1] for f in lijn]
-        aan = [k for k, h in enumerate(helder) if h > 250]
-        assert len(aan) == 3 and aan == list(range(aan[0], aan[0] + 3)), helder   # 3 wagons vol aan, naast elkaar
-        assert 0 < helder[aan[0] - 1] < 250                        # met een staart erachter
-        assert frame[lijn[aan[0] - 1]["adres"]] > 200 and frame[lijn[aan[0] - 1]["adres"] + 1] == 0   # rood
-        koppen.append(aan[-1])
-    assert koppen[1] - koppen[0] == 2 and koppen[2] - koppen[1] == 2   # rijdt naar rechts
+        kop = max(range(20), key=lambda k: helder[k])
+        assert helder[kop] > 200 and sum(h > 200 for h in helder) <= 2, helder   # één felle bal
+        assert sum(h > 0 for h in helder) <= 6                     # met een korte veeg, de rest donker
+        plekken.append(kop)
+    assert plekken[0] < plekken[1] < plekken[2] and plekken[3] < plekken[2]       # vliegt heen, en weer terug
+    assert abs(plekken[1] - 9.5) <= 1                              # op een halve beat al halverwege de zaal
     par1 = next(f for f in e.data["fixtures"] if f["naam"] == "Par 1")
-    assert e.render(e.bpm_t0 + 2 * tel)[1][par1["adres"] - 1] > 0      # de andere lampen doen gewoon hun ding
+    assert e.render(e.bpm_t0 + 0.5 * tel)[1][par1["adres"] - 1] > 0     # de andere lampen doen gewoon hun ding
     with pytest.raises(ValueError):
-        e.maak_trein_cues("Bestaat niet")
+        e.maak_bal_cues("Bestaat niet")
+    with pytest.raises(ValueError):
+        e.voeg_lijn_toe(30, "ledbar_8")                            # 30 × 24 kanalen past niet in één universe
+    r = e.voeg_lijn_toe(20, "ledbar_8", "Bars")                    # 20 × 24 = 480: in universe 2
+    assert r["universe"] == 2 and r["adres"] == 1

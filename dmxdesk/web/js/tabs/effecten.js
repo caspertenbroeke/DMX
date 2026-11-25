@@ -112,8 +112,11 @@ function teken(el) {
       <h2>Intensiteit${laag ? ` · ${esc(laag)}` : ''}</h2>
       ${modusKnoppen('intensiteit.modus', M.intensiteit, c.intensiteit.modus)}
       <div class="rij"><label>Snelheid</label>${keuzelijst('intensiteit.snelheid', /^trein/.test(c.intensiteit.modus)
-        ? SNELHEDEN.map(([v]) => [v, v < 1 ? `${1 / v} lampen per beat` : v === 1 ? '1 lamp per beat' : `1 lamp per ${v} beats`]) : SNELHEDEN,
-        c.intensiteit.snelheid)}</div>
+        ? SNELHEDEN.map(([v]) => [v, v < 1 ? `${1 / v} lampen per beat` : v === 1 ? '1 lamp per beat' : `1 lamp per ${v} beats`])
+        : /^bal/.test(c.intensiteit.modus) ? SNELHEDEN.map(([v]) => [v, `zaal over in ${v === 0.25 ? '¼' : v === 0.5 ? '½' : v} beat${v > 1 ? 's' : ''}`])
+        : SNELHEDEN, c.intensiteit.snelheid)}</div>
+      ${/^bal/.test(c.intensiteit.modus) ? `
+      <div class="rij"><label>Veeg achter de bal</label>${keuzelijst('intensiteit.staart', [[0, 'geen'], [1, '1 lamp'], [2, '2 lampen'], [3, '3 lampen'], [5, '5 lampen']], c.intensiteit.staart ?? 2)}</div>` : ''}
       ${/^trein/.test(c.intensiteit.modus) ? `
       <div class="rij"><label>Lengte treintje</label>${keuzelijst('intensiteit.lengte', [1, 2, 3, 4, 5, 6, 8].map(n => [n, n === 1 ? '1 lamp' : `${n} lampen`]), c.intensiteit.lengte ?? 3)}</div>
       <div class="rij"><label>Staart</label>${keuzelijst('intensiteit.staart', [[0, 'geen'], [1, '1 lamp'], [2, '2 lampen'], [3, '3 lampen'], [4, '4 lampen'], [6, '6 lampen']], c.intensiteit.staart ?? 2)}</div>` : ''}
