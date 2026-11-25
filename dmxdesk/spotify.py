@@ -90,8 +90,12 @@ def versterking(procent):
 class GeluidskaartUitgang:
     """Afspelen via de geluidskaart van deze computer (PortAudio), met het volume van de speler."""
 
+    BUFFER = 0.25        # s geluid klaar in de geluidskaart: ruim, zodat een drukke computer niet hapert
+                         # (kost niets: de lichtshow rekent deze vertraging mee)
+
     def __init__(self, apparaat=None, volume=100):
         self.apparaat, self.stream = apparaat, None
+        self.haperingen = deque(maxlen=200)       # wanneer de geluidskaart even niets had (tikjes, kraken)
         self.gain = self._gain_oud = versterking(volume)
         try:       # hoe lang het duurt voor geschreven geluid te horen is (na het openen: de echte waarde)
             nr = _zoek_uitvoer(apparaat)
@@ -112,7 +116,12 @@ class GeluidskaartUitgang:
         if nr is None and not any(d.get("max_output_channels", 0) >= 2 for d in sd.query_devices()):
             raise OSError("geen luidspreker of geluidskaart gevonden")
         try:
-            self.stream = sd.RawOutputStream(samplerate=SR, channels=2, dtype="int16", device=nr)
+            try:
+                hoog = float(sd.query_devices(nr if nr is not None else sd.default.device[1])["default_high_output_latency"])
+            except Exception:
+                hoog = 0.1
+            self.stream = sd.RawOutputStream(samplerate=SR, channels=2, dtype="int16", device=nr,
+                                             latency=max(self.BUFFER, hoog))
             self.stream.start()
         except Exception as e:
             self.stream = None
@@ -134,9 +143,14 @@ class GeluidskaartUitgang:
                 s *= np.linspace(oud, g, len(s), dtype=np.float32)[:, None]
             else:
                 s *= g
-            data = np.clip(s, -32768, 32767).astype("<i2").tobytes()
+            data = np.clip(np.rint(s), -32768, 32767).astype("<i2").tobytes()     # afronden, niet afkappen
         self._gain_oud = g
-        self.stream.write(data)
+        if self.stream.write(data):               # True: er zat een gat in het geluid (hapering)
+            self.haperingen.append(time.time())
+
+    def haperingen_recent(self, sec=60.0):
+        nu = time.time()
+        return sum(1 for t in self.haperingen if nu - t < sec)
 
     def stop(self):
         if self.stream is not None:
@@ -214,6 +228,7 @@ class SpotifySpeaker:
             "vooruit": round(d.vooruit(), 1) if d else 0.0,       # hoeveel het licht nu echt vooruit hoort
             "geleerd": len((self.geleerd.get(self.speler.get("id") or "") or {}).get("momenten", [])),
             "vullen": bool(d and d.vul_nodig and not d.actief and d.in_rij > 0),
+            "haperingen": self.uitgang.haperingen_recent() if self.uitgang else 0,     # laatste minuut
             "speler": dict(self.speler),
         }
 

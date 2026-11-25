@@ -412,3 +412,37 @@ def test_speaker_leert_opbouw_en_drop_per_nummer(tmp_path, monkeypatch):
     assert json.loads((tmp_path / "geleerd.json").read_text()) == {}
     with pytest.raises(ValueError):
         sp2.vergeet_nummer()
+
+
+def test_geluidskaart_ruime_buffer_afronden_en_haperingen_tellen(monkeypatch):
+    geopend, geschreven = {}, []
+
+    class Stream:
+        latency = 0.25
+
+        def __init__(self, **kw):
+            geopend.update(kw)
+
+        def start(self):
+            pass
+
+        def write(self, data):
+            geschreven.append(np.frombuffer(data, dtype="<i2").copy())
+            return len(geschreven) == 2                      # de 2e keer: hapering
+
+    apparaat = {"name": "Luidspreker", "max_output_channels": 2, "hostapi": 0, "default_high_output_latency": 0.09}
+    monkeypatch.setattr(spotify, "sd", types.SimpleNamespace(
+        RawOutputStream=Stream, query_hostapis=lambda: [{"name": "Nep"}],
+        query_devices=lambda i=None: apparaat if i is not None else [apparaat],
+        default=types.SimpleNamespace(device=(0, 0))))
+    u = spotify.GeluidskaartUitgang(None, volume=100)
+    u.start()
+    assert geopend["latency"] >= 0.25 and u.latentie == 0.25
+    stil = np.full(8, 1000, dtype="<i2").tobytes()
+    u.schrijf(stil)
+    assert geschreven[0].tolist() == [1000] * 8                # volume 100: bit voor bit hetzelfde
+    u.volume(50)                                               # 1/8
+    u.schrijf(np.full(8, 1001, dtype="<i2").tobytes())         # (geleidelijk naar het nieuwe volume)
+    u.schrijf(np.full(8, 1001, dtype="<i2").tobytes())
+    assert geschreven[2].tolist() == [125] * 8                 # 1001/8 = 125,1 → afgerond 125
+    assert u.haperingen_recent() == 1
