@@ -1,5 +1,5 @@
 // Scènes en cuelijsten: beheren, hernoemen, volgorde, overvloeitijd; cuelijsten die op de beat door scènes lopen.
-import { K, api, doe, esc, $, kloon, vraag, invoer, toast } from '../kern.js';
+import { K, api, doe, esc, $, kloon, vraag, invoer, toast, dialoog, laadState } from '../kern.js';
 
 let C = null, cueKeuze = null;     // bewerkbare kopie van de cuelijsten
 
@@ -41,6 +41,7 @@ function tekenCues() {
     <div class="rij" style="margin-top:0">
       <select id="clKeuze" style="flex:1;min-width:160px">${namen.map(n => `<option ${n === cueKeuze ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
       <button id="clNieuw">+ Nieuwe cuelijst</button>
+      <button id="clTrein" title="Scènes en een cuelijst met een treintje door een lijn lampen">🚂 Treintje-cues…</button>
       ${cl ? `<button class="gevaar" id="clWeg">Verwijderen</button>` : ''}
       <button class="primair" id="clOpslaan" ${vuil() ? '' : 'disabled'}>Opslaan</button>
     </div>
@@ -67,6 +68,36 @@ function tekenCues() {
 async function cuesOpslaan() {
   try { await api('/api/cuelijsten', C); toast('Cuelijsten opgeslagen'); K.S.cuelijsten = kloon(C); tekenCues(); }
   catch (e) { toast(e.message, true); }
+}
+
+function treinCues() {
+  const tel = {};
+  K.S.fixtures.filter(f => f.effecten?.intensiteit !== false).forEach(f => { const g = f.groep || 'Overig'; tel[g] = (tel[g] || 0) + 1; });
+  const groepen = Object.entries(tel).filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]);
+  if (!groepen.length) return toast('Zet eerst een paar lampen in één groep (Patch → + Lamp toevoegen, Aantal 15, groep bv. "Lijn")', true);
+  const voorkeur = (groepen.find(([g]) => /lijn|trein/i.test(g)) || groepen[0])[0];
+  dialoog({
+    titel: '🚂 Treintje-cues maken',
+    html: `<p class="hint">Een treintje van een paar lampen rijdt door de groep, met een uitdovende staart: naar rechts, naar links,
+        heen en weer, meerdere treintjes, sneltrein en regenboog. Het rijdt op volgorde van links naar rechts zoals de lampen
+        in <b>Podium</b> staan; de andere lampen doen gewoon hun eigen ding. Je krijgt 8 scènes (begint met "Trein"/"Treintjes")
+        en een cuelijst <b>Treintje</b> die ze afwisselt. Bestaan ze al, dan worden ze vervangen.</p>
+      <div class="rij"><label>Groep (de lijn)</label><select id="trGroep">${groepen.map(([g, n]) =>
+        `<option value="${esc(g)}" ${g === voorkeur ? 'selected' : ''}>${esc(g)} (${n} lampen)</option>`).join('')}</select></div>
+      <div class="rij"><label>Elke cue duurt</label><select id="trBeats">${[8, 16, 32, 64].map(b =>
+        `<option value="${b}" ${b === 16 ? 'selected' : ''}>${b} beats</option>`).join('')}</select></div>
+      <label class="check"><input type="checkbox" id="trStart" checked> meteen starten</label>`,
+    knoppen: [{ tekst: 'Annuleren' }, { tekst: 'Maken', klasse: 'primair', actie: async d => {
+      const groep = $('#trGroep', d.el).value, beats = Number($('#trBeats', d.el).value), start = $('#trStart', d.el).checked;
+      try {
+        const r = await api('/api/trein-cues', { groep, beats });
+        toast(`${r.scenes.length} treintje-scènes en cuelijst "${r.cuelijst}" gemaakt voor ${r.groep}`);
+        await laadState(true);
+        C = kloon(K.S.cuelijsten); cueKeuze = r.cuelijst; tekenScenes(); tekenCues();
+        if (start) await doe('/api/cue', { actie: 'start', naam: r.cuelijst });
+      } catch (e) { toast(e.message, true); return false; }
+    } }],
+  });
 }
 
 export default {
@@ -102,6 +133,7 @@ export default {
         await scenesOpslaan(lijst); tekenScenes();
       }
       // cuelijsten
+      else if (b.id === 'clTrein') treinCues();
       else if (b.id === 'clNieuw') {
         const naam = await invoer('Naam van de nieuwe cuelijst', 'Cuelijst ' + (Object.keys(C).length + 1));
         if (!naam) return;

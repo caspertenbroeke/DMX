@@ -83,7 +83,7 @@ STANDAARD_SHOW = {
     "tempo_factor": 1,
     "fade": 1.0,
     "kleur": {"modus": "chase", "palet": ["#ff0000", "#0000ff"], "snelheid": 1, "spreiding": 50},
-    "intensiteit": {"modus": "aan", "snelheid": 1},
+    "intensiteit": {"modus": "aan", "snelheid": 1, "lengte": 3, "staart": 2},
     "beweging": {"modus": "cirkel", "snelheid": 8, "grootte": 50, "spreiding": 50, "pan": 50, "tilt": 50},
     "looks": {"modus": "wissel", "elke": 16, "keuze": {}},
     "auto": {"aan": False, "elke": 32},
@@ -138,7 +138,7 @@ def samenvoegen(doel, bron):
                     samenvoegen(lagen[naam], cfg)
         elif isinstance(doel.get(k), dict) and isinstance(v, dict):
             samenvoegen(doel[k], v)
-        elif k in doel:
+        elif k in doel or k in ("lengte", "staart"):     # (treintje: ook in lagen van vóór die instelling)
             doel[k] = v
 
 
@@ -920,6 +920,49 @@ class Engine:
                                          "fade": _getal(fade if fade is not None else oud.get("fade", show.get("fade", 1)), 1, 0, 60),
                                          "kleur": str(kleur or oud.get("kleur") or "")[:7]}
             self.gewijzigd()
+
+    # treintje-cues: een lijn lampen waar een treintje doorheen rijdt, in verschillende kleuren en richtingen
+    TREIN_CUES = [
+        # naam, patroon, lengte, staart, snelheid (beats per lamp), kleur-modus, palet
+        ("Trein → rood", "trein", 3, 2, 0.5, "vast", ["#ff0000"]),
+        ("Trein ← blauw", "trein_terug", 3, 2, 0.5, "vast", ["#0000ff"]),
+        ("Trein heen en weer", "trein_heen_weer", 3, 3, 0.5, "vast", ["#ff6600"]),
+        ("Treintjes wit", "treinen", 2, 2, 0.25, "vast", ["#ffffff"]),
+        ("Regenboogtrein", "trein", 4, 3, 0.5, "regenboog", ["#ff0000", "#0000ff"]),
+        ("Sneltrein", "trein", 1, 4, 0.25, "vast", ["#00ffff"]),
+        ("Lange trein paars", "trein_heen_weer", 6, 4, 1, "vast", ["#8800ff"]),
+        ("Treintjes rood/blauw", "treinen", 3, 1, 0.5, "chase", ["#ff0000", "#0000ff"]),
+    ]
+
+    def maak_trein_cues(self, groep=None, beats=16):
+        """Scènes met een treintje door de lampen van `groep` (op volgorde van links naar rechts in Podium),
+        plus een cuelijst 'Treintje' die ze elke `beats` beats afwisselt. Geeft (groep, namen) terug."""
+        with self.lock:
+            lampen = [f for f in self.data["fixtures"] if f.get("effecten", {}).get("intensiteit", True)]
+            tel = {}
+            for f in lampen:
+                tel[f.get("groep") or "Overig"] = tel.get(f.get("groep") or "Overig", 0) + 1
+            if groep is None:
+                groep = max(tel, key=tel.get) if tel else None
+            if not groep or tel.get(groep, 0) < 2:
+                raise ValueError("Zet eerst minstens 2 lampen in deze groep (Patch); het treintje rijdt door die groep")
+            beweging = copy.deepcopy(self.data["show"]["beweging"])
+            namen = []
+            for naam, modus, lengte, staart, snelheid, kleur, palet in self.TREIN_CUES:
+                laag = {"eigen": True,
+                        "intensiteit": {"modus": modus, "snelheid": snelheid, "lengte": lengte, "staart": staart},
+                        "kleur": {"modus": kleur, "palet": list(palet), "snelheid": 1, "spreiding": 100},
+                        "beweging": beweging}
+                self.data["scenes"][naam] = {"effecten": {"lagen": {groep: laag}}, "vast": {}, "fade": 0.0,
+                                             "kleur": palet[0]}
+                namen.append(naam)
+            self.data["cuelijsten"]["Treintje"] = {
+                "stappen": [{"scene": n, "duur": float(beats), "fade": 0.0} for n in namen],
+                "eenheid": "beats", "herhalen": True}
+            self.data["scenes"] = self.schone_scenes(self.data["scenes"])
+            self.data["cuelijsten"] = self.schone_cuelijsten(self.data["cuelijsten"])
+            self.gewijzigd()
+            return groep, namen
 
     def scene_verwijderen(self, naam):
         with self.lock:

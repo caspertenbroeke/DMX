@@ -58,7 +58,8 @@ STAP_KLEUR = {"wissel", "chase", "split", "regenboog_stap", "random"}
 # ---------------------------------------------------------------- intensiteit
 
 INTENSITEIT_MODI = [
-    ("aan", "Alles aan"), ("noot_puls", "♪ Puls op melodie"), ("chase", "Chase"), ("chase_terug", "Chase terug"),
+    ("aan", "Alles aan"), ("noot_puls", "♪ Puls op melodie"), ("trein", "Treintje →"), ("trein_terug", "Treintje ←"),
+    ("trein_heen_weer", "Treintje heen en weer"), ("treinen", "Treintjes"), ("chase", "Chase"), ("chase_terug", "Chase terug"),
     ("pingpong", "Ping-pong"), ("dubbel_chase", "Dubbele chase"), ("om_en_om", "Om en om"),
     ("linksrechts", "Links/Rechts"), ("binnenbuiten", "Binnen/Buiten"), ("midden_uit", "Midden → buiten"),
     ("buiten_in", "Buiten → midden"), ("vullen", "Vullen"), ("golf", "Golf"), ("puls", "Puls"), ("flits", "Flits op beat"),
@@ -67,9 +68,45 @@ INTENSITEIT_MODI = [
 ]
 
 
+TREIN_MODI = {"trein", "trein_terug", "trein_heen_weer", "treinen"}
+
+
+def trein(cfg, beat, i, n):
+    """Een treintje: `lengte` lampen vol aan die vloeiend door de lijn rijden, met een uitdovende staart van
+    `staart` lampen erachter. snelheid = beats per lamp (¼ = 4 lampen per beat)."""
+    m = cfg.get("modus", "trein")
+    lengte = clamp(int(cfg.get("lengte", 3) or 1), 1, 16)
+    staart = clamp(float(cfg.get("staart", 2) or 0), 0, 16)
+    q = beat / max(0.0625, float(cfg.get("snelheid", 1)))      # waar de kop is (in lampen)
+    if m == "trein_terug":
+        i = n - 1 - i
+    if m == "trein_heen_weer" and n > 1:
+        periode = 2.0 * (n - 1)
+        langs = (i, periode - i)                 # de kop komt heen en terug langs deze lamp
+    elif m == "treinen":
+        periode = 2.0 * lengte + staart + 1      # meerdere treintjes achter elkaar, met een gat ertussen
+        langs = (i,)
+    else:
+        periode = n + lengte + staart            # helemaal de lijn uit voordat de volgende komt
+        langs = (i,)
+    sinds = min((q - t) % periode for t in langs)       # hoeveel lampen geleden de kop hier was
+    voor = min((t - q) % periode for t in langs)        # hoe ver de kop nog weg is
+    if sinds < lengte:
+        v = 1.0
+    elif sinds < lengte + staart:
+        v = (1.0 - (sinds - lengte + 1.0) / (staart + 1.0)) ** 2
+    else:
+        v = 0.0
+    if voor < 1.0:                               # de kop schuift er zacht in
+        v = max(v, 1.0 - voor)
+    return v
+
+
 def intensiteit_effect(cfg, beat, i, n, x, sinds_noot=None):
     m = cfg.get("modus", "aan")
     n = max(1, n)
+    if m in TREIN_MODI:
+        return trein(cfg, beat, i, n)
     zacht = float(cfg.get("zacht") or 0)
     if zacht > 0:
         hard = dict(cfg, zacht=0)

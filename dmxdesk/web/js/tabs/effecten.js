@@ -111,7 +111,12 @@ function teken(el) {
     <div class="blok">
       <h2>Intensiteit${laag ? ` · ${esc(laag)}` : ''}</h2>
       ${modusKnoppen('intensiteit.modus', M.intensiteit, c.intensiteit.modus)}
-      <div class="rij"><label>Snelheid</label>${keuzelijst('intensiteit.snelheid', SNELHEDEN, c.intensiteit.snelheid)}</div>
+      <div class="rij"><label>Snelheid</label>${keuzelijst('intensiteit.snelheid', /^trein/.test(c.intensiteit.modus)
+        ? SNELHEDEN.map(([v]) => [v, v < 1 ? `${1 / v} lampen per beat` : v === 1 ? '1 lamp per beat' : `1 lamp per ${v} beats`]) : SNELHEDEN,
+        c.intensiteit.snelheid)}</div>
+      ${/^trein/.test(c.intensiteit.modus) ? `
+      <div class="rij"><label>Lengte treintje</label>${keuzelijst('intensiteit.lengte', [1, 2, 3, 4, 5, 6, 8].map(n => [n, n === 1 ? '1 lamp' : `${n} lampen`]), c.intensiteit.lengte ?? 3)}</div>
+      <div class="rij"><label>Staart</label>${keuzelijst('intensiteit.staart', [[0, 'geen'], [1, '1 lamp'], [2, '2 lampen'], [3, '3 lampen'], [4, '4 lampen'], [6, '6 lampen']], c.intensiteit.staart ?? 2)}</div>` : ''}
     </div>
 
     <div class="blok">

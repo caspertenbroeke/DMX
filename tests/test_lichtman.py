@@ -246,3 +246,30 @@ def test_geleerde_momenten_vervangen_en_drop_knop_stopt_opbouw():
     lm.verschuif(150.0, 5.0)                          # pauze: de geleerde drop schuift mee
     lm.vergeet_geleerd(150.0)
     assert list(lm.drops) == [136.0]                  # de geleerde weg, de gedrukte blijft
+
+
+def test_treintje_cues_door_een_lijn_van_15_lampen():
+    from dmxdesk.engine import fixture
+    e = Engine(None)
+    e.data["show"]["energie"]["aan"] = False                      # alleen het patroon bekijken
+    lijn = [fixture(100 + k, f"Lijn {k + 1}", "drgb_4", 101 + 4 * k, "Lijn", 90 - 5 * k) for k in range(15)]
+    e.zet_fixtures(e.data["fixtures"] + lijn)                      # (expres van rechts naar links ingevoerd)
+    groep, namen = e.maak_trein_cues()
+    assert groep == "Lijn" and len(namen) == 8 and e.data["cuelijsten"]["Treintje"]["stappen"][0]["scene"] == namen[0]
+    e.cue_start("Treintje")
+    lijn = sorted(lijn, key=lambda f: f["x"])                      # links → rechts in de tent
+    tel = 60 / e.data["show"]["bpm"]
+    koppen = []
+    for b in (2.0, 3.0, 4.0):                                      # snelheid ½ beat per lamp: elke beat 2 lampen verder
+        frame = e.render(e.bpm_t0 + b * tel)[1]
+        helder = [frame[f["adres"] - 1] for f in lijn]
+        aan = [k for k, h in enumerate(helder) if h > 250]
+        assert len(aan) == 3 and aan == list(range(aan[0], aan[0] + 3)), helder   # 3 wagons vol aan, naast elkaar
+        assert 0 < helder[aan[0] - 1] < 250                        # met een staart erachter
+        assert frame[lijn[aan[0] - 1]["adres"]] > 200 and frame[lijn[aan[0] - 1]["adres"] + 1] == 0   # rood
+        koppen.append(aan[-1])
+    assert koppen[1] - koppen[0] == 2 and koppen[2] - koppen[1] == 2   # rijdt naar rechts
+    par1 = next(f for f in e.data["fixtures"] if f["naam"] == "Par 1")
+    assert e.render(e.bpm_t0 + 2 * tel)[1][par1["adres"] - 1] > 0      # de andere lampen doen gewoon hun ding
+    with pytest.raises(ValueError):
+        e.maak_trein_cues("Bestaat niet")
