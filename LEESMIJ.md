@@ -178,6 +178,11 @@ regenboogbal, en "knal" vier keer per beat). De andere lampen doen gewoon hun ei
 kies de laag, intensiteit **Bal** (of **Treintje** voor een rustiger blok lampen) met de snelheid en de veeg.
 De volgorde is die op het *Podium* (links → rechts); sleep de lampen daar als ze anders hangen.
 
+**Een scène gaat vóór de auto-show.** De lampen die een geladen scène gebruikt (bij de bal-cues: de laag *Lijn*) zijn
+van die scène: de auto-show blijft eraf en doet gewoon de rest. Pas als je de scène loslaat (*Scène loslaten*, Esc,
+of *Loslaten* in Effecten) doen die lampen weer mee. Een scène voor alle lampen houdt de auto-show zolang helemaal
+stil. Aanpassen: bij *Scènes* op **Aanpassen**, in *Effecten* de kleur/het patroon veranderen en **Bewaren in …**.
+
 ## Beweging per lamp
 
 *Patch → Beweging per lamp*: voor alles met pan/tilt (moving heads, scanners, lasers) stel je per lamp **min**,

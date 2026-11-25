@@ -279,22 +279,42 @@ def test_lijn_van_20_lampen_en_bal_cues():
     assert r["universe"] == 2 and r["adres"] == 1
 
 
-def test_auto_show_laat_de_bal_met_rust_en_scene_bewaren():
+def test_scene_gaat_voor_de_auto_show_tot_je_hem_loslaat():
     e = Engine(None)
     e.voeg_lijn_toe(20, "drgb_4")
     e.maak_bal_cues()
-    e.laad_scene("Bal wit")
     e.data["show"]["auto"]["aan"] = True
-    assert e.data["show"]["auto"]["aan"]                      # (een bal-scène zet de auto-show niet uit)
     e.laad_scene("Bal snel rood")
-    assert e.data["show"]["auto"]["aan"]
+    assert e.data["show"]["auto"]["aan"]                       # de auto-show gaat gewoon door
+    globaal = []
     for k in range(6):                                         # auto-show kiest een paar keer iets nieuws
         e.auto_stap(k * 40.0)
+        globaal.append(e.data["show"]["intensiteit"]["modus"])
     lijn = e.data["show"]["lagen"]["Lijn"]
-    assert lijn["intensiteit"]["modus"] == "bal" and lijn["kleur"]["palet"] == ["#ff0000"]
+    assert lijn["intensiteit"]["modus"] == "bal" and lijn["kleur"]["palet"] == ["#ff0000"]   # de lijn is van de scène
+    assert len(set(globaal)) > 1                               # de rest wisselt wel
     lijn["kleur"]["palet"] = ["#00ff00"]                       # zelf de kleur aangepast, en bewaard
     e.scene_opslaan("Bal snel rood", "effecten")
     sc = e.data["scenes"]["Bal snel rood"]
     assert set(sc["effecten"]) == {"lagen"} and sc["effecten"]["lagen"]["Lijn"]["kleur"]["palet"] == ["#00ff00"]
-    e.wijzig_show({"lagen": {"Lijn": {"auto": True}}})         # laag weer vrijgeven voor de auto-show
-    assert e.data["show"]["lagen"]["Lijn"]["auto"] is True
+    e.scene_loslaten()                                         # "tot ik het zeg": nu doet de lijn weer mee
+    assert "Lijn" not in e.data["show"]["lagen"] and e.data["show"]["auto"]["aan"]
+
+    # een scène voor alle lampen: zolang hij geladen is, verandert de auto-show niets; daarna weer wel
+    e.data["show"]["intensiteit"]["modus"] = "chase"
+    e.scene_opslaan("Alles chase", "effecten")
+    e.laad_scene("Alles chase")
+    for k in range(6, 10):
+        e.auto_stap(k * 40.0)
+    assert e.data["show"]["intensiteit"]["modus"] == "chase" and e.data["show"]["auto"]["aan"]
+    e.scene_loslaten()
+    import random
+    random.seed(3)
+    na = []
+    for k in range(10, 16):
+        e.auto_stap(k * 40.0)
+        na.append(e.data["show"]["intensiteit"]["modus"])
+    assert any(m != "chase" for m in na)                      # losgelaten: de auto-show pakt het weer op
+    e.wijzig_show({"lagen": {"Pars": {"eigen": True}}})
+    e.wijzig_show({"lagen": {"Pars": {"auto": False}}})        # per laag kan de auto-show er ook vast af
+    assert e.data["show"]["lagen"]["Pars"]["auto"] is False

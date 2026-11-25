@@ -725,8 +725,10 @@ class Engine:
         show = self.data["show"]
         kleuren, intens, bewegingen = AUTO_PER_SECTIE.get(sectie) or (AUTO_KLEUR, AUTO_INTENSITEIT, AUTO_BEWEGING)
         palet = random.choice(AUTO_PALETTEN)
-        # (een laag met 'auto' uit, bijv. de lijn van de bal-cues, laat de auto-show met rust)
-        doelen = [show] + [lg for lg in (show.get("lagen") or {}).values() if lg.get("eigen") and lg.get("auto", True)]
+        # niet aankomen: wat de geladen scène gebruikt, en lagen waarbij 'auto-show blijft eraf' aan staat
+        alles, van_scene = self.scene_bezit()
+        doelen = ([] if alles else [show]) + [lg for n, lg in (show.get("lagen") or {}).items()
+                                              if lg.get("eigen") and lg.get("auto", True) and n not in van_scene]
         for cfg in doelen:
             cfg["kleur"].update(modus=random.choice(kleuren), palet=palet if cfg is show else random.choice(AUTO_PALETTEN),
                                 snelheid=random.choice([0.5, 1, 2]))
@@ -885,11 +887,19 @@ class Engine:
             if sc is None:
                 raise ValueError(f"Scène '{naam}' bestaat niet")
             show = self.data["show"]
-            if sc.get("effecten"):
-                for k, v in sc["effecten"].items():
+            eff = sc.get("effecten") or {}
+            # de scène gaat vóór de auto-show: wat hij gebruikt is van hem tot je hem loslaat (de auto-show
+            # loopt door voor de rest). Lagen van de vorige scène gaan weg, andere eigen lagen blijven.
+            vorige = self.scene_bezit()[1]
+            if set(eff) - {"lagen"}:
+                for k, v in eff.items():                  # scène voor alle lampen
                     show[k] = copy.deepcopy(v)
-                if set(sc["effecten"]) - {"lagen"}:
-                    show["auto"]["aan"] = False      # (een scène met alleen lagen, bijv. de bal, laat de auto-show aan)
+            else:
+                lagen = show.setdefault("lagen", {})
+                for n in vorige:
+                    lagen.pop(n, None)
+                for n, lg in (eff.get("lagen") or {}).items():
+                    lagen[n] = copy.deepcopy(lg)
             if fade is None:
                 fade = sc.get("fade", show.get("fade", 1.0))
             self._start_scene_laag(naam, sc.get("vast") or {}, fade)
@@ -897,8 +907,19 @@ class Engine:
                 self.cue = None
             self.gewijzigd(opslaan=not vanuit_cue)   # een lopende cuelijst hoeft niet steeds naar de SD-kaart
 
+    def scene_bezit(self):
+        """(alle lampen?, lagen) die de geladen scène nu 'heeft': daar blijft de auto-show af."""
+        sa = self.scene_actief
+        sc = self.data["scenes"].get(sa["naam"]) if sa and sa.get("naam") else None
+        eff = (sc or {}).get("effecten") or {}
+        return bool(set(eff) - {"lagen"}), set(eff.get("lagen") or {})
+
     def scene_loslaten(self, fade=None):
         with self.lock:
+            alles, lagen = self.scene_bezit()
+            if not alles:                                  # zijn lagen weer vrij: die doen weer mee met de rest
+                for n in lagen:
+                    self.data["show"].get("lagen", {}).pop(n, None)
             if self.scene_actief:
                 self._start_scene_laag(None, {}, self.data["show"].get("fade", 1.0) if fade is None else fade)
             self.cue = None
@@ -954,7 +975,7 @@ class Engine:
             beweging = copy.deepcopy(self.data["show"]["beweging"])
             namen = []
             for naam, modus, snelheid, staart, kleur, palet in self.BAL_CUES:
-                laag = {"eigen": True, "auto": False,          # de auto-show laat de bal met rust
+                laag = {"eigen": True,
                         "intensiteit": {"modus": modus, "snelheid": snelheid, "lengte": 1, "staart": staart},
                         # bij 'wissel': elke keer dat de bal de lijn over is een andere kleur
                         "kleur": {"modus": kleur, "palet": list(palet), "snelheid": snelheid, "spreiding": 0 if kleur == "wissel" else 100},
