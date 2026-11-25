@@ -277,3 +277,24 @@ def test_lijn_van_20_lampen_en_bal_cues():
         e.voeg_lijn_toe(30, "ledbar_8")                            # 30 × 24 kanalen past niet in één universe
     r = e.voeg_lijn_toe(20, "ledbar_8", "Bars")                    # 20 × 24 = 480: in universe 2
     assert r["universe"] == 2 and r["adres"] == 1
+
+
+def test_auto_show_laat_de_bal_met_rust_en_scene_bewaren():
+    e = Engine(None)
+    e.voeg_lijn_toe(20, "drgb_4")
+    e.maak_bal_cues()
+    e.laad_scene("Bal wit")
+    e.data["show"]["auto"]["aan"] = True
+    assert e.data["show"]["auto"]["aan"]                      # (een bal-scène zet de auto-show niet uit)
+    e.laad_scene("Bal snel rood")
+    assert e.data["show"]["auto"]["aan"]
+    for k in range(6):                                         # auto-show kiest een paar keer iets nieuws
+        e.auto_stap(k * 40.0)
+    lijn = e.data["show"]["lagen"]["Lijn"]
+    assert lijn["intensiteit"]["modus"] == "bal" and lijn["kleur"]["palet"] == ["#ff0000"]
+    lijn["kleur"]["palet"] = ["#00ff00"]                       # zelf de kleur aangepast, en bewaard
+    e.scene_opslaan("Bal snel rood", "effecten")
+    sc = e.data["scenes"]["Bal snel rood"]
+    assert set(sc["effecten"]) == {"lagen"} and sc["effecten"]["lagen"]["Lijn"]["kleur"]["palet"] == ["#00ff00"]
+    e.wijzig_show({"lagen": {"Lijn": {"auto": True}}})         # laag weer vrijgeven voor de auto-show
+    assert e.data["show"]["lagen"]["Lijn"]["auto"] is True

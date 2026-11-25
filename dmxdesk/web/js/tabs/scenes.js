@@ -1,5 +1,6 @@
 // Scènes en cuelijsten: beheren, hernoemen, volgorde, overvloeitijd; cuelijsten die op de beat door scènes lopen.
 import { K, api, doe, esc, $, kloon, vraag, invoer, toast, dialoog, laadState } from '../kern.js';
+import { kiesLaag } from './effecten.js';
 
 let C = null, cueKeuze = null;     // bewerkbare kopie van de cuelijsten
 
@@ -24,6 +25,7 @@ function tekenScenes() {
       <td class="hint">${[sc.effecten ? 'effecten' : '', Object.keys(sc.vast).length ? Object.keys(sc.vast).length + ' lampen vast' : ''].filter(Boolean).join(' + ') || 'leeg'}</td>
       <td style="width:90px"><input type="number" min="0" max="60" step="0.1" value="${sc.fade}" data-scfade="${i}"></td>
       <td style="white-space:nowrap"><button data-laad="${esc(n)}" class="${st.scene === n ? 'aan' : ''}">Laden</button>
+        ${sc.effecten ? `<button data-bewerk="${esc(n)}" title="Laden en de kleur, het patroon en de snelheid aanpassen">Aanpassen</button>` : ''}
         <button data-overschrijf="${esc(n)}" title="Huidige effecten in deze scène zetten">Bijwerken</button>
         <button class="gevaar" data-weg="${esc(n)}">×</button></td></tr>`).join('')}
   </table></div>` : '<div class="leeg">Nog geen scènes. Sla de huidige effecten op, of maak een scène met vaste kleuren in de Programmer.</div>';
@@ -139,6 +141,14 @@ export default {
         const naam = await invoer('Huidige effecten opslaan als scène', '', 'Kleur, intensiteit, beweging en looks worden bewaard.');
         if (naam) doe('/api/scene', { actie: 'opslaan', naam, inhoud: 'effecten' }, 'Scène opgeslagen');
       } else if (b.dataset.laad) doe('/api/scene', { actie: 'laden', naam: b.dataset.laad });
+      else if (b.dataset.bewerk) {
+        const naam = b.dataset.bewerk, lagen = Object.keys(S.scenes[naam].effecten?.lagen || {});
+        if (S.status?.cue || K.L.s?.cue) await doe('/api/cue', { actie: 'stop' });
+        await doe('/api/scene', { actie: 'laden', naam });
+        await laadState();
+        kiesLaag(Object.keys(S.scenes[naam].effecten).length === 1 && lagen.length === 1 ? lagen[0] : null);
+        location.hash = 'effecten';
+      }
       else if (b.dataset.overschrijf) {
         const sc = S.scenes[b.dataset.overschrijf];
         if (await vraag(`De effecten in "${b.dataset.overschrijf}" vervangen door de huidige?`, 'Bijwerken'))

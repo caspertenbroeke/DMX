@@ -133,12 +133,12 @@ def samenvoegen(doel, bron):
                     lagen.pop(naam, None)             # laag weer laten volgen wat voor alle lampen geldt
                 elif isinstance(cfg, dict):
                     if naam not in lagen:             # nieuwe laag: begint met de huidige instellingen
-                        lagen[naam] = {"eigen": False, **{s: copy.deepcopy(doel.get(s) or STANDAARD_SHOW[s])
+                        lagen[naam] = {"eigen": False, "auto": True, **{s: copy.deepcopy(doel.get(s) or STANDAARD_SHOW[s])
                                                           for s in LAAG_SLEUTELS}}
                     samenvoegen(lagen[naam], cfg)
         elif isinstance(doel.get(k), dict) and isinstance(v, dict):
             samenvoegen(doel[k], v)
-        elif k in doel or k in ("lengte", "staart"):     # (treintje: ook in lagen van vóór die instelling)
+        elif k in doel or k in ("lengte", "staart", "auto"):     # (ook in lagen van vóór die instellingen)
             doel[k] = v
 
 
@@ -725,7 +725,8 @@ class Engine:
         show = self.data["show"]
         kleuren, intens, bewegingen = AUTO_PER_SECTIE.get(sectie) or (AUTO_KLEUR, AUTO_INTENSITEIT, AUTO_BEWEGING)
         palet = random.choice(AUTO_PALETTEN)
-        doelen = [show] + [lg for lg in (show.get("lagen") or {}).values() if lg.get("eigen")]
+        # (een laag met 'auto' uit, bijv. de lijn van de bal-cues, laat de auto-show met rust)
+        doelen = [show] + [lg for lg in (show.get("lagen") or {}).values() if lg.get("eigen") and lg.get("auto", True)]
         for cfg in doelen:
             cfg["kleur"].update(modus=random.choice(kleuren), palet=palet if cfg is show else random.choice(AUTO_PALETTEN),
                                 snelheid=random.choice([0.5, 1, 2]))
@@ -887,7 +888,8 @@ class Engine:
             if sc.get("effecten"):
                 for k, v in sc["effecten"].items():
                     show[k] = copy.deepcopy(v)
-                show["auto"]["aan"] = False
+                if set(sc["effecten"]) - {"lagen"}:
+                    show["auto"]["aan"] = False      # (een scène met alleen lagen, bijv. de bal, laat de auto-show aan)
             if fade is None:
                 fade = sc.get("fade", show.get("fade", 1.0))
             self._start_scene_laag(naam, sc.get("vast") or {}, fade)
@@ -914,8 +916,10 @@ class Engine:
                         if w and (not fixtures or int(fid) in [int(x) for x in fixtures])}
                 if inhoud == "vast" and not vast:
                     raise ValueError("De programmer is leeg: stel eerst lampen in")
-            effecten = {k: copy.deepcopy(show[k]) for k in EFFECT_SLEUTELS} if inhoud in ("effecten", "beide") else None
             oud = self.data["scenes"].get(naam, {})
+            effecten = {k: copy.deepcopy(show[k]) for k in EFFECT_SLEUTELS} if inhoud in ("effecten", "beide") else None
+            if effecten and set((oud.get("effecten") or {})) == {"lagen"}:
+                effecten = {"lagen": effecten["lagen"]}     # scène van alleen lagen (bal-cues): zo houden
             self.data["scenes"][naam] = {"effecten": effecten, "vast": vast,
                                          "fade": _getal(fade if fade is not None else oud.get("fade", show.get("fade", 1)), 1, 0, 60),
                                          "kleur": str(kleur or oud.get("kleur") or "")[:7]}
@@ -950,7 +954,7 @@ class Engine:
             beweging = copy.deepcopy(self.data["show"]["beweging"])
             namen = []
             for naam, modus, snelheid, staart, kleur, palet in self.BAL_CUES:
-                laag = {"eigen": True,
+                laag = {"eigen": True, "auto": False,          # de auto-show laat de bal met rust
                         "intensiteit": {"modus": modus, "snelheid": snelheid, "lengte": 1, "staart": staart},
                         # bij 'wissel': elke keer dat de bal de lijn over is een andere kleur
                         "kleur": {"modus": kleur, "palet": list(palet), "snelheid": snelheid, "spreiding": 0 if kleur == "wissel" else 100},

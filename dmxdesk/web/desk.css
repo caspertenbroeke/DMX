@@ -334,3 +334,7 @@ body.met-speler #menu { bottom: 68px; }
 .houd.dropknop { color: #ff4d6d; border-color: #ff4d6d; background: #2a0710; }
 .houd.dropknop.aan { background: #fff; color: #000; }
 @keyframes opbouwen { from { filter: brightness(.8); } to { filter: brightness(1.25); } }
+
+/* Effecten: welke scène er geladen is (aanpassen en bewaren) */
+.scenebalk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 14px; border-color: var(--accent, #ffc800); }
+.scenebalk .hint { flex: 1 1 320px; margin: 0; }

@@ -3,6 +3,7 @@
 import { K, api, doe, esc, $, afremmen, zetShow, toast, invoer, pad, laadState } from '../kern.js';
 
 let laag = null;          // null = alle lampen; anders de naam van een groep (laag)
+export function kiesLaag(n) { laag = n || null; }
 const LAAGDEEL = /^(kleur|intensiteit|beweging)\./;
 
 // lagen = groepen uit de Patch met lampen die effecten doen
@@ -49,7 +50,9 @@ function laagBlok() {
       <button data-laag="" class="${laag === null ? 'aan' : ''}">Alle lampen</button>
       ${namen.map(n => `<button data-laag="${esc(n)}" class="${laag === n ? 'aan' : ''}">${esc(n)}${heeftEigen(n) ? ' ●' : ''}</button>`).join('')}
       <span class="vul"></span>
-      ${laag && heeftEigen(laag) ? `<button class="stil" id="efLaagWeg">${esc(laag)} volgt weer alle lampen</button>` : ''}</div>
+      ${laag && heeftEigen(laag) ? `<button id="efLaagAuto" class="${K.S.show.lagen[laag].auto === false ? 'aan' : ''}"
+          title="Aan: de auto-show verandert de patronen van deze laag niet">${K.S.show.lagen[laag].auto === false ? '🔒 Auto-show blijft eraf' : 'Auto-show mag deze laag veranderen'}</button>
+        <button class="stil" id="efLaagWeg">${esc(laag)} volgt weer alle lampen</button>` : ''}</div>
     <p class="hint">${laag === null
       ? 'Patroon, snelheid en kleur voor alle lampen. Kies een laag (groep uit de Patch) om die eigen patronen te geven, bijvoorbeeld de pars een chase en de moving heads een cirkel. ● = laag met eigen patronen.'
       : heeftEigen(laag) ? `Je stelt nu alleen <b>${esc(laag)}</b> in. Een chase loopt binnen deze laag.`
@@ -91,6 +94,7 @@ function teken(el) {
   el.innerHTML = `
   <div class="paginakop"><h1>Effecten</h1><span class="hint">Alles loopt op de beat. Een scène bewaart deze instellingen.</span><span class="vul"></span>
     <button id="efScene" class="primair">Opslaan als scène…</button></div>
+  <div id="efSceneBalk"></div>
   <div class="raster">
     ${laagBlok()}
     ${laag && !heeftEigen(laag) ? '' : `
@@ -169,6 +173,7 @@ function teken(el) {
   const ek = $('#eigenKleur');
   if (ek) ek.addEventListener('change', e => zet('kleur.palet', (cfg().kleur.palet || []).concat([e.target.value]).slice(-8)));
   energie(K.L);
+  balkWas = ''; sceneBalk(K.L.s || K.S.status);
 }
 
 const ELKE = [[1, '1 beat'], [2, '2 beats'], [4, '4 beats'], [8, '8 beats'], [16, '16 beats'], [32, '32 beats']];
@@ -195,8 +200,24 @@ function attribuutBlok(S) {
     </div></div>`;
 }
 
+// welke scène er geladen is: aanpassen en meteen in die scène bewaren
+let balkWas = '';
+function sceneBalk(st) {
+  const el = $('#efSceneBalk'); if (!el || !st) return;
+  const cue = st.cue && !st.cue.pauze ? st.cue : null;
+  const html = st.scene && K.S.scenes[st.scene] ? `<div class="blok scenebalk">
+      <b>🎬 Scène "${esc(st.scene)}" is geladen.</b>
+      <span class="hint">Pas hieronder kleur, patroon of snelheid aan${laag ? ` (laag <b>${esc(laag)}</b>)` : ''} en klik op Bewaren.
+        ${cue ? `De cuelijst "${esc(cue.lijst)}" loopt nog en gaat zo naar de volgende scène: pauzeer hem eerst.` : ''}</span>
+      <span class="vul"></span>
+      ${cue ? '<button id="efCuePauze">⏸ Cuelijst pauzeren</button>' : ''}
+      <button class="primair" id="efSceneBewaar" data-naam="${esc(st.scene)}">Bewaren in "${esc(st.scene)}"</button></div>` : '';
+  if (html !== balkWas) { el.innerHTML = html; balkWas = html; }
+}
+
 function energie(L) {
   const st = L && L.s; if (!st) return;
+  sceneBalk(st);
   const bron = Object.values(st.luister || {}).find(i => i.energie !== null && i.energie !== undefined);
   const m = $('#efMeter'); if (!m) return;
   const e = bron ? bron.energie : null, lm = st.lichtman;
@@ -228,6 +249,15 @@ export default {
       if (b.id === 'lmVergeet') return doe('/api/lichtman', { actie: 'vergeet' }, 'Vergeten voor dit nummer');
       if (b.dataset.laag !== undefined) { laag = b.dataset.laag || null; return teken(el); }
       if (b.id === 'efLaagEigen') { await doe('/api/show', { lagen: { [laag]: { eigen: true } } }); await laadState(); return teken(el); }
+      if (b.id === 'efLaagAuto') {
+        await doe('/api/show', { lagen: { [laag]: { auto: K.S.show.lagen[laag].auto === false } } }); await laadState(); return teken(el);
+      }
+      if (b.id === 'efCuePauze') return doe('/api/cue', { actie: 'pauze' });
+      if (b.id === 'efSceneBewaar') {
+        const naam = b.dataset.naam, sc = K.S.scenes[naam] || {};
+        return doe('/api/scene', { actie: 'opslaan', naam, inhoud: Object.keys(sc.vast || {}).length ? 'beide' : 'effecten',
+          fade: sc.fade, kleur: sc.kleur }, `Bewaard in scène "${naam}"`);
+      }
       if (b.id === 'efLaagWeg') { await doe('/api/show', { lagen: { [laag]: null } }); await laadState(); return teken(el); }
       if (b.dataset.set !== undefined && b.dataset.val !== undefined) {
         let v = b.dataset.val; try { v = JSON.parse(v); } catch (x) { /* tekst */ }
@@ -242,6 +272,7 @@ export default {
       if (b.dataset.bpm) return zetShow('bpm', Math.round(K.S.show.bpm) + Number(b.dataset.bpm));
       if (b.dataset.palet) {
         const c = b.dataset.palet; let p = [...(cfg().kleur.palet || [])];
+        if (cfg().kleur.modus === 'vast') return zet('kleur.palet', [c]);     // één kleur: klik = die kleur
         p = p.includes(c) ? p.filter(x => x !== c) : p.concat([c]);
         if (!p.length) return toast('Minimaal één kleur nodig', true);
         return zet('kleur.palet', p);
