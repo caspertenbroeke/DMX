@@ -16,8 +16,8 @@ function spotifyStatus(st, cfg) {
   if (!st.aan) return 'Starten…';
   if (st.vullen) return `<i class="dot half"></i> Licht klaarzetten: ${st.vooruit} van ${cfg.voorsprong} s gehoord, dan begint de muziek`;
   if (st.speelt) return `<i class="dot ok"></i> Speelt${st.nummer ? `: <b>${esc(st.nummer)}</b>` : ''} · het licht hoort nu <b>${st.vooruit} s</b> vooruit (ingesteld ${cfg.voorsprong} s)`
-    + (st.haperingen ? `<br><i class="dot half"></i> Het geluid haperde ${st.haperingen}× in de laatste minuut (tikjes/kraken): de computer kon het even niet bijhouden.
-      Sluit zware programma's, of kies bij Luidspreker een andere uitgang.` : '');
+    + (st.haperingen ? `<br><i class="dot half"></i> Geluidskaart haperde ${st.haperingen}× in de laatste minuut: de computer kon het even niet bijhouden.` : '')
+    + (st.gaten ? `<br><i class="dot half"></i> Muziek ${st.gaten}× niet op tijd binnen in de laatste minuut (internet/wifi te traag of weg).` : '');
   if (st.verbonden) return `<i class="dot half"></i> Verbonden met Spotify, wacht op muziek${st.nummer ? ` (laatst: ${esc(st.nummer)})` : ''}`;
   return `<i class="dot half"></i> Klaar: kies <b>${esc(cfg.naam)}</b> als speaker in de Spotify-app`;
 }

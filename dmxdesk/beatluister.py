@@ -512,6 +512,7 @@ class Doorgever:
         self.t_stil = None          # sinds wanneer het stilstaat (of wanneer het voorvullen begon)
         self.vul_nodig = True       # eerst de voorsprong klaarzetten (begin, na leeg(), na haperen)
         self.vrij_tot = 0.0         # tot dan lezen zonder op ruimte in de rij te wachten (zie vrij_lezen)
+        self.gaten = deque(maxlen=200)   # wanneer de rij leeg raakte terwijl er muziek speelde (aanvoer te laat)
         self._uit = []              # berichten voor de lichtshow (buiten de lock versturen)
 
     def _zet(self, speelt, fout):
@@ -536,6 +537,10 @@ class Doorgever:
             berichten, self._uit = self._uit, []
         for b in berichten:
             self.a.stuur(b)
+
+    def gaten_recent(self, sec=60.0):
+        nu = time.time()
+        return sum(1 for t in self.gaten if nu - t < sec)
 
     def vooruit(self):
         """Hoeveel seconden het licht nu echt vooruit hoort (wat er klaarstaat)."""
@@ -661,7 +666,7 @@ class Doorgever:
 
     def speel(self):
         """Speelt de rij af; geeft de geluidskaart vrij als er even niets is."""
-        open_, leeg_sinds, niet_voor = False, None, 0.0
+        open_, leeg_sinds, niet_voor, gat = False, None, 0.0, None     # gat: [begin, al geteld]
         while not self.stoppen.is_set():
             with self.cond:
                 nu = time.time()
@@ -673,7 +678,12 @@ class Doorgever:
                 data = None
                 if self.actief:
                     if not self.rij and not self.klaar:
+                        gat = gat or [time.time(), False]
                         self.cond.wait(0.25)
+                        # muziek speelt, maar er is al even niets: dat hoor je (kort leeg vangt de geluidskaart op)
+                        if not self.rij and not gat[1] and time.time() - gat[0] >= 0.15:
+                            gat[1] = True
+                            self.gaten.append(gat[0])
                     if self.rij:
                         data = self.rij.popleft()
                         if not callable(data):
@@ -701,7 +711,7 @@ class Doorgever:
                     open_ = False
                     self._zet(False, None)
                 continue
-            leeg_sinds = None
+            leeg_sinds, gat = None, None
             if not open_ and nu >= niet_voor:
                 try:
                     self.uitgang.start()

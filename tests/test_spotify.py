@@ -414,7 +414,7 @@ def test_speaker_leert_opbouw_en_drop_per_nummer(tmp_path, monkeypatch):
         sp2.vergeet_nummer()
 
 
-def test_geluidskaart_ruime_buffer_afronden_en_haperingen_tellen(monkeypatch):
+def test_geluidskaart_afronden_en_haperingen_tellen(monkeypatch):
     geopend, geschreven = {}, []
 
     class Stream:
@@ -437,7 +437,7 @@ def test_geluidskaart_ruime_buffer_afronden_en_haperingen_tellen(monkeypatch):
         default=types.SimpleNamespace(device=(0, 0))))
     u = spotify.GeluidskaartUitgang(None, volume=100)
     u.start()
-    assert geopend["latency"] >= 0.25 and u.latentie == 0.25
+    assert "latency" not in geopend and u.latentie == 0.25     # standaard buffer (groter gaf haperingen)
     stil = np.full(8, 1000, dtype="<i2").tobytes()
     u.schrijf(stil)
     assert geschreven[0].tolist() == [1000] * 8                # volume 100: bit voor bit hetzelfde
@@ -446,3 +446,18 @@ def test_geluidskaart_ruime_buffer_afronden_en_haperingen_tellen(monkeypatch):
     u.schrijf(np.full(8, 1001, dtype="<i2").tobytes())
     assert geschreven[2].tolist() == [125] * 8                 # 1001/8 = 125,1 → afgerond 125
     assert u.haperingen_recent() == 1
+
+
+def test_doorgever_telt_gaten_als_de_aanvoer_te_laat_is():
+    d = bl.Doorgever(NepAnalyse(), NepUitgang(), voorsprong=0.2)
+    stuk = klikken(0.1)
+
+    def lees():
+        for k in range(30):
+            if k == 10:
+                time.sleep(0.8)              # internet hapert: even niets
+            time.sleep(0.09)
+            yield stuk
+    blokken = lees()
+    d.draai(lambda: next(blokken, b""))
+    assert d.gaten_recent() == 1

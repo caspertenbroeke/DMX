@@ -90,9 +90,6 @@ def versterking(procent):
 class GeluidskaartUitgang:
     """Afspelen via de geluidskaart van deze computer (PortAudio), met het volume van de speler."""
 
-    BUFFER = 0.25        # s geluid klaar in de geluidskaart: ruim, zodat een drukke computer niet hapert
-                         # (kost niets: de lichtshow rekent deze vertraging mee)
-
     def __init__(self, apparaat=None, volume=100):
         self.apparaat, self.stream = apparaat, None
         self.haperingen = deque(maxlen=200)       # wanneer de geluidskaart even niets had (tikjes, kraken)
@@ -116,12 +113,8 @@ class GeluidskaartUitgang:
         if nr is None and not any(d.get("max_output_channels", 0) >= 2 for d in sd.query_devices()):
             raise OSError("geen luidspreker of geluidskaart gevonden")
         try:
-            try:
-                hoog = float(sd.query_devices(nr if nr is not None else sd.default.device[1])["default_high_output_latency"])
-            except Exception:
-                hoog = 0.1
-            self.stream = sd.RawOutputStream(samplerate=SR, channels=2, dtype="int16", device=nr,
-                                             latency=max(self.BUFFER, hoog))
+            # (standaard buffer van de geluidskaart: een grotere gaf juist haperingen)
+            self.stream = sd.RawOutputStream(samplerate=SR, channels=2, dtype="int16", device=nr)
             self.stream.start()
         except Exception as e:
             self.stream = None
@@ -228,7 +221,9 @@ class SpotifySpeaker:
             "vooruit": round(d.vooruit(), 1) if d else 0.0,       # hoeveel het licht nu echt vooruit hoort
             "geleerd": len((self.geleerd.get(self.speler.get("id") or "") or {}).get("momenten", [])),
             "vullen": bool(d and d.vul_nodig and not d.actief and d.in_rij > 0),
-            "haperingen": self.uitgang.haperingen_recent() if self.uitgang else 0,     # laatste minuut
+            # haperingen in de laatste minuut: de geluidskaart had even niets / Spotify leverde niet op tijd
+            "haperingen": self.uitgang.haperingen_recent() if self.uitgang else 0,
+            "gaten": d.gaten_recent() if d else 0,
             "speler": dict(self.speler),
         }
 
