@@ -23,6 +23,7 @@ import webbrowser
 
 from . import NAAM, VERSIE, paden
 from .audio import AudioInvoer
+from .os2l import OS2L
 from .spotify import SpotifySpeaker
 from .bibliotheek import Bibliotheek
 from .engine import Engine, motor_lus, opslag_lus
@@ -155,6 +156,7 @@ def main(argv=None):
     audio = AudioInvoer(engine)
     midi = Midi(engine)
     spotify = SpotifySpeaker(engine)
+    vdj = OS2L(engine)
     bibliotheek = Bibliotheek()
     stoppen = threading.Event()
     app = App(engine, bibliotheek, uitvoer, audio, midi, afsluiten=stoppen.set, spotify=spotify)
@@ -173,6 +175,7 @@ def main(argv=None):
             engine.data["spotify"]["aan"] = not args.server and spotify.beschikbaar()
             engine.gewijzigd()
     spotify.bijwerken()
+    vdj.start()                       # Virtual DJ (OS2L): beat en knoppen van de DJ-software
     threading.Thread(target=server.serve_forever, daemon=True, name="webserver").start()
 
     try:     # systemctl stop / uitzetten: netjes opslaan en de lampen uit
@@ -200,10 +203,10 @@ def main(argv=None):
     except KeyboardInterrupt:
         pass
     finally:
-        afsluiten(engine, uitvoer, audio, midi, spotify, server, app)
+        afsluiten(engine, uitvoer, audio, midi, spotify, server, app, vdj)
 
 
-def afsluiten(engine, uitvoer, audio, midi, spotify, server, app):
+def afsluiten(engine, uitvoer, audio, midi, spotify, server, app, vdj=None):
     print("Afsluiten…", flush=True)
     app.stoppen.set()
     try:
@@ -216,7 +219,9 @@ def afsluiten(engine, uitvoer, audio, midi, spotify, server, app):
         engine.render = lambda nu: engine.frames      # motor stilzetten
         engine.frames = {u: bytearray(512) for u in engine.frames}
     time.sleep(0.15)
-    for onderdeel in (spotify, audio, midi, uitvoer):
+    for onderdeel in (vdj, spotify, audio, midi, uitvoer):
+        if onderdeel is None:
+            continue
         try:
             onderdeel.stop()
         except Exception:

@@ -135,6 +135,22 @@ speelt, en hoe ver het licht vooruit hoort. Loopt het licht nog net voor of acht
   `cd spotify-speaker && cargo build --release`, of wijs hem aan met `DMXDESK_SPEAKER=pad`.
 - Op de Pi (`--server`) staat hij standaard uit: daar doet raspotify dit (zie hieronder).
 
+## Virtual DJ
+
+Draai je met Virtual DJ, dan stuurt Virtual DJ elke beat en de BPM rechtstreeks naar DMXDesk (**OS2L**). Het licht
+loopt dan precies in de maat, ook als je mixt of het tempo verandert, en de 1 van de maat valt goed.
+
+1. Start DMXDesk en Virtual DJ (op dezelfde laptop, of op hetzelfde netwerk).
+2. Virtual DJ vindt DMXDesk meestal vanzelf. Zo niet: in Virtual DJ bij *Instellingen → Opties* zoeken op **os2l** en
+   bij **os2lDirectIp** het adres invullen dat in DMXDesk bij *Geluid → Virtual DJ* staat (zelfde laptop:
+   `127.0.0.1:7838`).
+3. Zet voor rustig/druk/drops ook *Geluid → Geluidskaart* aan met het geluid van de computer (Stereomix of line-in):
+   de beat komt dan van Virtual DJ, het gevoel van de lichtman uit het geluid.
+
+Knoppen of pads in Virtual DJ (actie `os2l_button "naam"`): `strobe`, `smoke`, `blinder` (zolang ingedrukt), `drop`,
+`opbouw`, `blackout`, `auto`, `loslaten`, of de naam van een scène of cuelijst. Loopt het licht net voor of achter:
+schuif *Virtual DJ* bij *Licht gelijk zetten met de muziek*.
+
 ## De lichtman
 
 *Effecten → Lichtman* (standaard aan). De show kijkt niet alleen naar het tempo, maar vooral naar **de kick**:

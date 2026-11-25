@@ -87,7 +87,7 @@ STANDAARD_SHOW = {
     "beweging": {"modus": "cirkel", "snelheid": 8, "grootte": 50, "spreiding": 50, "pan": 50, "tilt": 50},
     "looks": {"modus": "wissel", "elke": 16, "keuze": {}},
     "auto": {"aan": False, "elke": 32},
-    "beat": {"auto": True, "vertraging_spotify": 200, "vertraging_mpd": 400, "vertraging_audio": 0, "vertraging_connect": 40,
+    "beat": {"auto": True, "vertraging_spotify": 200, "vertraging_mpd": 400, "vertraging_audio": 0, "vertraging_connect": 40, "vertraging_os2l": 0,
              "bpm_min": 75, "bpm_max": 220, "snel_herkennen": True},
     # de lichtman (show volgt de muziek): contrast 0 = doet bijna niets, 100 = rustig heel rustig en drops heel wild
     # strobe: bij de 2e/3e drop van een hard nummer een paar tellen strobe, en in 'Extreem!' af en toe een klap
@@ -619,6 +619,8 @@ class Engine:
             bpm = float(m.get("bpm") or 0)
             if not cfg.get("auto") or bpm <= 0:
                 return
+            if nu - self.luister.get("os2l", {}).get("laatste_beat", 0.0) < 3.0:
+                return          # Virtual DJ geeft de beat zelf door (OS2L): die is exact, niet tegensturen
             if self.data["show"]["energie"].get("aan") and \
                     self.lichtman.tempo_vasthouden(float(m.get("t", nu)) + vertraging):
                 return          # break/opbouw: maat vasthouden tot de kick terug is
@@ -651,6 +653,26 @@ class Engine:
             fout = b - round(b)
             if abs(fout) < 0.35:
                 self.bpm_t0 += fout * 60.0 / float(self.data["show"]["bpm"]) * 0.35
+
+    def os2l_beat(self, bpm, pos, change=False, nu=None):
+        """Een beat van Virtual DJ (OS2L): de BPM en de maat precies overnemen. pos = de hoeveelste beat van
+        het nummer; daarmee valt ook de 1 van de maat goed (zonder grote sprong in de telling)."""
+        nu = time.time() if nu is None else nu
+        with self.lock:
+            info = self.luister.setdefault("os2l", {"laatste_beat": 0.0})
+            info.update(bpm=round(bpm, 1), zekerheid=1.0, gezien=nu, laatste_beat=nu, niveau=0.0)
+            if not self.data["show"]["beat"].get("auto"):
+                return
+            bpm = clamp(float(bpm), 40.0, 240.0)
+            if abs(bpm - float(self.data["show"]["bpm"])) >= 0.05:
+                self.zet_bpm(bpm, nu)
+            v = float(self.data["show"]["beat"].get("vertraging_os2l", 0)) / 1000.0
+            tel = 60.0 / float(self.data["show"]["bpm"])
+            b = self.beat(nu + v)
+            doel = round(b) + ((pos - round(b)) % 4 if pos >= 0 else 0)   # zelfde plek in de maat van 4
+            if doel - round(b) > 2:
+                doel -= 4
+            self.bpm_t0 += (b - doel) * tel
 
     # ------------------------------------------------------------ knoppen OPBOUW en DROP
     def lichtman_knop(self, soort):

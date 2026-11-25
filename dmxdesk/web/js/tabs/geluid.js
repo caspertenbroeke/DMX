@@ -86,11 +86,28 @@ const stuurSchuif = afremmen((p, v) => zetShow(p, v, false), 100);
 const schuif = (p, label, waarde, min, max) =>
   `<div class="rij"><label>${label}</label><input type="range" min="${min}" max="${max}" value="${waarde}" data-set="${p}"><span class="waarde">${waarde}</span></div>`;
 
+function vdjStatus(o) {
+  if (!o) return '<p class="hint">Niet beschikbaar.</p>';
+  if (!o.aan) return `<p class="fout">Luistert niet${o.fout ? ': ' + esc(o.fout) : ''}</p>`;
+  const adres = `<div class="rij"><label>Adres</label><b>${esc(o.adres)}</b></div>`;
+  if (o.beat) return `<i class="dot ok"></i> Verbonden · beat van Virtual DJ: <b>${o.bpm} BPM</b>${adres}`;
+  if (o.verbonden) return `<i class="dot half"></i> Verbonden met Virtual DJ, wacht op muziek${adres}`;
+  return `<i class="dot"></i> Wacht op Virtual DJ${o.gevonden ? ' (DMXDesk is op het netwerk te vinden)' : ''}${adres}`;
+}
+
 function teken(el) {
   const s = K.S.show, b = s.beat;
   el.innerHTML = `<div class="paginakop"><h1>Geluid</h1><span class="hint">DMXDesk luistert mee en zet het licht op de beat.</span></div>
   <div class="raster">
     <div class="blok"><h2>Spotify-speaker</h2><div id="glSpotify"></div></div>
+    <div class="blok"><h2>Virtual DJ</h2><div id="glVdj">${vdjStatus((K.L.s || K.S.status).os2l)}</div>
+      <p class="hint">Virtual DJ stuurt elke beat en de BPM rechtstreeks naar DMXDesk (OS2L): het licht loopt precies in de
+        maat, ook als je mixt of het tempo verandert. Zet voor rustig/druk/drops óók de geluidskaart hieronder aan (Stereomix of
+        line-in), dan hoort de lichtman de muziek erbij.</p>
+      <p class="hint"><b>In Virtual DJ:</b> Instellingen → Opties, zoek op <b>os2l</b>. Meestal vindt hij DMXDesk vanzelf
+        (computer en DMXDesk op hetzelfde netwerk of dezelfde laptop). Zo niet: vul bij <b>os2lDirectIp</b> het adres hierboven in.
+        <br><b>Knoppen/pads</b> in Virtual DJ (actie <code>os2l_button "naam"</code>): <i>strobe</i>, <i>smoke</i>, <i>blinder</i>
+        (zolang ingedrukt), <i>drop</i>, <i>opbouw</i>, <i>blackout</i>, <i>auto</i>, <i>loslaten</i>, of de naam van een scène of cuelijst.</p></div>
     <div class="blok"><h2>Geluidskaart van deze computer</h2><div id="glKaart"></div></div>
     <div class="blok"><h2>Wat DMXDesk hoort</h2><div id="glLuister">${luisterTekst(K.L.s || K.S.status)}</div>
       <h3>BPM</h3>
@@ -104,6 +121,7 @@ function teken(el) {
     <div class="blok"><h2>Licht gelijk zetten met de muziek</h2>
       <p class="hint">Loopt het licht vóór op de muziek? Schuif naar rechts. Loopt het achter? Naar links. (milliseconden)</p>
       ${schuif('beat.vertraging_connect', 'Spotify-speaker', b.vertraging_connect, -300, 1200)}
+      ${schuif('beat.vertraging_os2l', 'Virtual DJ', b.vertraging_os2l ?? 0, -300, 1200)}
       ${schuif('beat.vertraging_audio', 'Geluidskaart', b.vertraging_audio, -300, 1200)}
       ${schuif('beat.vertraging_spotify', 'Spotify (Pi)', b.vertraging_spotify, -300, 1200)}
       ${schuif('beat.vertraging_mpd', 'Mp3/MPD (Pi)', b.vertraging_mpd, -300, 1200)}
@@ -151,6 +169,7 @@ export default {
     const n = $('#glNiveau'), a = L.s.luister && L.s.luister.audio;
     if (n) n.style.width = a ? Math.min(100, Math.round(Math.sqrt(a.niveau / 0.25) * 100)) + '%' : '0%';
     const li = $('#glLuister'); if (li) li.innerHTML = luisterTekst(L.s);
+    const vdj = $('#glVdj'); if (vdj) vdj.innerHTML = vdjStatus(L.s.os2l);
     const sp = $('#glSpStatus');
     if (sp && L.s.spotify) sp.innerHTML = spotifyStatus(L.s.spotify, K.S.spotify);
     const st = $('#glStatus'), au = L.s.audio;
